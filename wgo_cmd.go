@@ -347,6 +347,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	if err != nil {
 		return err
 	}
+	defer watcher.Close()
 	for _, root := range wgoCmd.Roots {
 		wgoCmd.addDirsRecursively(watcher, root)
 	}
