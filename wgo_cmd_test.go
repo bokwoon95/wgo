@@ -198,8 +198,9 @@ func TestWgoCmd_match(t *testing.T) {
 func TestWgoCmd_addDirsRecursively(t *testing.T) {
 	type TestTable struct {
 		description string
-		args        []string
+		roots       []string
 		dir         string
+		args        []string
 		wantWatched []string
 	}
 
@@ -207,23 +208,31 @@ func TestWgoCmd_addDirsRecursively(t *testing.T) {
 	// test scaffolding will convert them to absolute paths for you.
 	tests := []TestTable{{
 		description: "-xdir",
-		args:        []string{"-xdir", "subdir"},
+		roots:       []string{"testdata/dir"},
 		dir:         "testdata/dir",
+		args:        []string{"-xdir", "subdir"},
 		wantWatched: []string{
 			"testdata/dir",
 			"testdata/dir/foo",
 		},
 	}, {
 		description: "-xdir with slash",
-		args:        []string{"-xdir", "/"},
+		roots:       []string{"testdata/dir"},
 		dir:         "testdata/dir",
+		args:        []string{"-xdir", "/"},
 		wantWatched: []string{
 			"testdata/dir",
 		},
 	}, {
-		description: "-dir",
-		args:        []string{"-dir", "foo"},
+		description: "-xdir excludes non root dir",
+		args:        []string{"-xdir", "testdata/dir"},
 		dir:         "testdata/dir",
+		wantWatched: []string{},
+	}, {
+		description: "-dir",
+		roots:       []string{"testdata/dir"},
+		dir:         "testdata/dir",
+		args:        []string{"-dir", "foo"},
 		wantWatched: []string{
 			"testdata/dir",
 			"testdata/dir/foo",
@@ -231,9 +240,10 @@ func TestWgoCmd_addDirsRecursively(t *testing.T) {
 			"testdata/dir/subdir/foo",
 		},
 	}, {
-		description: "override default ignored dir",
-		args:        []string{"-dir", "node_modules"},
+		description: "explicitly include node_modules",
+		roots:       []string{"testdata/dir"},
 		dir:         "testdata/dir",
+		args:        []string{"-dir", "node_modules"},
 		wantWatched: []string{
 			"testdata/dir",
 			"testdata/dir/foo",
@@ -251,6 +261,13 @@ func TestWgoCmd_addDirsRecursively(t *testing.T) {
 			wgoCmd, err := WgoCommand(context.Background(), tt.args)
 			if err != nil {
 				t.Fatal(err)
+			}
+			for i := range tt.roots {
+				root, err := filepath.Abs(tt.roots[i])
+				if err != nil {
+					t.Fatal(err)
+				}
+				wgoCmd.Roots = append(wgoCmd.Roots, root)
 			}
 			watcher, err := fsnotify.NewWatcher()
 			if err != nil {

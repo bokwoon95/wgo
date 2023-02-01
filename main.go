@@ -35,6 +35,7 @@ func main() {
 		fmt.Print(helptext)
 		return
 	}
+
 	userInterrupt := make(chan os.Signal, 1)
 	signal.Notify(userInterrupt, syscall.SIGTERM, syscall.SIGINT)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -46,6 +47,7 @@ func main() {
 		os.Exit(1)
 	}()
 
+	// Construct the list of WgoCmds from os.Args.
 	wgoCmds, err := WgoCommands(ctx, os.Args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -53,6 +55,8 @@ func main() {
 		}
 		log.Fatal(err)
 	}
+
+	// Run the WgoCmds in parallel.
 	results := make(chan error, len(wgoCmds))
 	var wg sync.WaitGroup
 	for _, wgoCmd := range wgoCmds {
@@ -68,6 +72,7 @@ func main() {
 		close(results)
 	}()
 
+	// Wait for results.
 	ok := true
 	for err := range results {
 		if err != nil {

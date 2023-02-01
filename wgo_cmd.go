@@ -521,6 +521,10 @@ func compileRegexp(buf *bytes.Buffer, pattern string) (*regexp.Regexp, error) {
 // doesn't support it natively https://github.com/fsnotify/fsnotify/issues/18.
 // A nice side effect is that we get to log the watched directories as we go.
 func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) {
+	roots := make(map[string]struct{})
+	for _, root := range wgoCmd.Roots {
+		roots[root] = struct{}{}
+	}
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -529,17 +533,17 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 			return nil
 		}
 		normalizedDir := filepath.ToSlash(path)
-		for _, root := range wgoCmd.Roots {
-			root += string(filepath.Separator)
-			if strings.HasPrefix(path, root) {
-				normalizedDir = filepath.ToSlash(strings.TrimPrefix(path, root))
-				break
-			}
-		}
-		if path == dir {
+		_, isRoot := roots[path]
+		if isRoot {
 			wgoCmd.Logger.Println("WATCH", normalizedDir)
 			watcher.Add(path)
 			return nil
+		}
+		for _, root := range wgoCmd.Roots {
+			if strings.HasPrefix(path, root+string(filepath.Separator)) {
+				normalizedDir = filepath.ToSlash(strings.TrimPrefix(path, root+string(filepath.Separator)))
+				break
+			}
 		}
 		for _, r := range wgoCmd.ExcludeDirRegexps {
 			if r.MatchString(normalizedDir) {
