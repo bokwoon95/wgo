@@ -620,6 +620,8 @@ func (wgoCmd *WgoCmd) match(op string, path string) bool {
 			wgoCmd.Logger.Println(op, normalizedFile)
 			return true
 		}
+		wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+		return false
 	}
 	if len(wgoCmd.FileRegexps) == 0 {
 		wgoCmd.Logger.Println(op, normalizedFile)

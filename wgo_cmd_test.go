@@ -141,6 +141,11 @@ func TestWgoCmd_match(t *testing.T) {
 		path:        "testdata/args/main.go",
 		want:        true,
 	}, {
+		description: "wgo run without flags exclude non go files",
+		args:        []string{"run", "main.go"},
+		path:        "testdata/dir/foo/bar.txt",
+		want:        false,
+	}, {
 		description: "fallthrough",
 		args:        []string{"-file", ".go", "-file", "test", "-xfile", ".css", "-xfile", "assets"},
 		path:        "index.html",
