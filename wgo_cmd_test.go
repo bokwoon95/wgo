@@ -73,7 +73,7 @@ func Test_compileRegexp(t *testing.T) {
 		tt := tt
 		t.Run(tt.description, func(t *testing.T) {
 			t.Parallel()
-			r, err := compileRegexp(&bytes.Buffer{}, tt.pattern)
+			r, err := compileRegexp(tt.pattern)
 			if err != nil {
 				t.Fatal(err)
 			}

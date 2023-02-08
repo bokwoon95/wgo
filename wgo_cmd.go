@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -180,9 +179,8 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 		wgoCmd.Roots = append(wgoCmd.Roots, root)
 		return nil
 	})
-	buf := &bytes.Buffer{}
 	flagset.Func("file", "Include file regex. Can be repeated.", func(value string) error {
-		r, err := compileRegexp(buf, value)
+		r, err := compileRegexp(value)
 		if err != nil {
 			return err
 		}
@@ -190,7 +188,7 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 		return nil
 	})
 	flagset.Func("xfile", "Exclude file regex. Can be repeated.", func(value string) error {
-		r, err := compileRegexp(buf, value)
+		r, err := compileRegexp(value)
 		if err != nil {
 			return err
 		}
@@ -198,7 +196,7 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 		return nil
 	})
 	flagset.Func("dir", "Include directory regex. Can be repeated.", func(value string) error {
-		r, err := compileRegexp(buf, value)
+		r, err := compileRegexp(value)
 		if err != nil {
 			return err
 		}
@@ -206,7 +204,7 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 		return nil
 	})
 	flagset.Func("xdir", "Exclude directory regex. Can be repeated.", func(value string) error {
-		r, err := compileRegexp(buf, value)
+		r, err := compileRegexp(value)
 		if err != nil {
 			return err
 		}
@@ -484,7 +482,7 @@ func (wgoCmd *WgoCmd) Run() error {
 // [a-zA-Z] as a dot literal. Makes expressing file extensions like .css or
 // .html easier. The user can always escape this behaviour by wrapping the dot
 // up in a grouping bracket i.e. `(.)css`.
-func compileRegexp(buf *bytes.Buffer, pattern string) (*regexp.Regexp, error) {
+func compileRegexp(pattern string) (*regexp.Regexp, error) {
 	n := strings.Count(pattern, ".")
 	if n == 0 {
 		return regexp.Compile(pattern)
@@ -498,23 +496,21 @@ func compileRegexp(buf *bytes.Buffer, pattern string) (*regexp.Regexp, error) {
 		// case and trim the "./" prefix away.
 		pattern = pattern[2:]
 	}
-	if buf.Cap() < len(pattern)+n {
-		buf.Grow(len(pattern) + n)
-	}
-	buf.Reset()
+	var b strings.Builder
+	b.Grow(len(pattern)+n)
 	j := 0
 	for j < len(pattern) {
-		prev, _ := utf8.DecodeLastRune(buf.Bytes())
+		prev, _ := utf8.DecodeLastRuneInString(b.String())
 		curr, width := utf8.DecodeRuneInString(pattern[j:])
 		next, _ := utf8.DecodeRuneInString(pattern[j+width:])
 		j += width
 		if prev != '\\' && curr == '.' && (('a' <= next && next <= 'z') || ('A' <= next && next <= 'Z')) {
-			buf.WriteString("\\.")
+			b.WriteString("\\.")
 		} else {
-			buf.WriteRune(curr)
+			b.WriteRune(curr)
 		}
 	}
-	return regexp.Compile(buf.String())
+	return regexp.Compile(b.String())
 }
 
 // addDirsRecursively adds directories recursively to a watcher since it
