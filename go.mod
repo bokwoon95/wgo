@@ -1,6 +1,6 @@
 module github.com/bokwoon95/wgo
 
-go 1.11
+go 1.16
 
 require (
 	github.com/fsnotify/fsnotify v1.6.0
