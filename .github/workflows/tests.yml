@@ -11,9 +11,9 @@ jobs:
       - name: Clone repo
         uses: actions/checkout@v3
       - name: Install go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
-          go-version: '>=1.18.0'
+          go-version: '1.16.0'
       - name: Install goveralls
         run: go install github.com/mattn/goveralls@latest
       - run: go test . -coverprofile=coverage -race
