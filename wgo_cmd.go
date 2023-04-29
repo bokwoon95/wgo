@@ -379,14 +379,20 @@ func (wgoCmd *WgoCmd) Run() error {
 				cmd.Path, err = exec.LookPath(cmd.Path)
 				if errors.Is(err, exec.ErrNotFound) {
 					if runtime.GOOS == "windows" {
-						cmd.Path, cmd.Err = exec.LookPath("pwsh.exe")
+						path, err := exec.LookPath("pwsh.exe")
+						if err != nil {
+							return err
+						}
+						cmd.Path = path
 						cmd.Args = []string{"pwsh.exe", "-command", joinArgs(args)}
 					} else {
-						cmd.Path, cmd.Err = exec.LookPath("sh")
+						path, err := exec.LookPath("sh")
+						if err != nil {
+							return err
+						}
+						cmd.Path = path
 						cmd.Args = []string{"sh", "-c", joinArgs(args)}
 					}
-				} else if errors.Is(err, exec.ErrDot) {
-					// Ignore ErrDot, we want to allow users to omit the dot.
 				} else if err != nil {
 					return err
 				}
@@ -497,7 +503,7 @@ func compileRegexp(pattern string) (*regexp.Regexp, error) {
 		pattern = pattern[2:]
 	}
 	var b strings.Builder
-	b.Grow(len(pattern)+n)
+	b.Grow(len(pattern) + n)
 	j := 0
 	for j < len(pattern) {
 		prev, _ := utf8.DecodeLastRuneInString(b.String())

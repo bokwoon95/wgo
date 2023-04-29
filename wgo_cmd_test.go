@@ -773,7 +773,7 @@ func TestHelp(t *testing.T) {
 	}
 }
 
-func Diff[T any](got, want T) string {
+func Diff(got, want interface{}) string {
 	opts := cmp.Options{
 		cmp.Exporter(func(typ reflect.Type) bool { return true }),
 		cmpopts.EquateEmpty(),
@@ -785,6 +785,13 @@ func Diff[T any](got, want T) string {
 	return ""
 }
 
+// Buffer is a custom buffer type that is guarded by a sync.RWMutex.
+//
+// Some of the tests (signal on, signal off, timeout on, timeout off) initially
+// wrote to a *bytes.Buffer as their Stdout and the *bytes.Buffer was read from
+// to assert test results. But these tests occasionally failed with data races
+// which caused CI/CD tests to fail and I can't find the cause so I'll just use
+// a blunt hammer and use a goroutine-safe buffer for those tests.
 type Buffer struct {
 	rw  sync.RWMutex
 	buf bytes.Buffer
