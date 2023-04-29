@@ -446,7 +446,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &bytes.Buffer{}
+		buf := &Buffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -467,7 +467,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &bytes.Buffer{}
+		buf := &Buffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -488,7 +488,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &bytes.Buffer{}
+		buf := &Buffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -509,7 +509,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &bytes.Buffer{}
+		buf := &Buffer{}
 		cmd.Stdout = buf
 		err = cmd.Run()
 		if err != nil {
@@ -643,7 +643,7 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buf := &bytes.Buffer{}
+	buf := &Buffer{}
 	wgoCmd.Stdout = buf
 	cmdResult := make(chan error)
 	go func() {
@@ -721,7 +721,7 @@ func TestStdin(t *testing.T) {
 		t.Fatal(err)
 	}
 	wgoCmd.Stdin = strings.NewReader("foo\nbar\nbaz")
-	buf := &bytes.Buffer{}
+	buf := &Buffer{}
 	wgoCmd.Stderr = buf
 	err = wgoCmd.Run()
 	if err != nil {
