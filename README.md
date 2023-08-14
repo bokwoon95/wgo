@@ -33,7 +33,7 @@ Core documentation resides at https://github.com/bokwoon95/wgo#quickstart
 
 ## Why this exists
 
-Too many file watchers either force you to wrap your commands into strings, require config files or log tons of noisy output to your stdout. In contrast, `wgo` is [dead simple](#quickstart) and silent by default. The implementation is also really short, most of it resides in just two files ([wgo\_cmd.go](https://github.com/bokwoon95/wgo/blob/main/wgo_cmd.go) and [main.go](https://github.com/bokwoon95/wgo/blob/main/main.go)).
+Too many file watchers either force you to wrap your commands into strings, require config files or log tons of noisy output to your stdout. In contrast, `wgo` is [dead simple](#quickstart) and silent by default. The implementation is also really short, most of it resides in just two files ([wgo\_cmd.go](https://github.com/bokwoon95/wgo/blob/main/wgo_cmd.go) and [main.go](https://github.com/bokwoon95/wgo/blob/main/main.go)). You can read the entire codebase in one sitting, [start here](https://github.com/bokwoon95/wgo/blob/main/START_HERE.md).
 
 It can be used like [`go run`](#wgo-run).
 
