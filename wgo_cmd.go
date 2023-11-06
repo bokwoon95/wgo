@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -421,7 +420,6 @@ func (wgoCmd *WgoCmd) Run() error {
 			}
 
 			// Step 2: Run the command in the background.
-			var cmdDone int32
 			cmdResult := make(chan error, 1)
 			err = cmd.Start()
 			if err != nil {
@@ -430,7 +428,7 @@ func (wgoCmd *WgoCmd) Run() error {
 			go func() {
 				wg.Wait()
 				cmdResult <- cmd.Wait()
-				atomic.StoreInt32(&cmdDone, 1)
+				close(cmdResult)
 			}()
 
 			// Step 3: Wait for events in the event loop.
@@ -438,9 +436,7 @@ func (wgoCmd *WgoCmd) Run() error {
 				select {
 				case <-wgoCmd.ctx.Done():
 					stop(cmd)
-					if atomic.LoadInt32(&cmdDone) == 0 {
-						<-cmdResult
-					}
+					<-cmdResult
 					return nil
 				case err := <-cmdResult:
 					if i == len(wgoCmd.ArgsList)-1 {
@@ -474,9 +470,7 @@ func (wgoCmd *WgoCmd) Run() error {
 					}
 				case <-timer.C: // Timer expired, reload commands.
 					stop(cmd)
-					// I cannot figure out why it's incorrect to wait for the
-					// cmd to finish here. Everytime I do, the program seems to
-					// freeze indefinitely.
+					<-cmdResult
 					break CMD_CHAIN
 				}
 			}
