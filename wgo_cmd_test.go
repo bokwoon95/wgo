@@ -318,7 +318,6 @@ func TestWgoCommands(t *testing.T) {
 		wantCmds: []*WgoCmd{{
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.go`)},
-			Logger:      defaultLogger,
 			ArgsList: [][]string{
 				{"clear"},
 				{"echo", "building..."},
@@ -335,8 +334,7 @@ func TestWgoCommands(t *testing.T) {
 			"::", "wgo", "-file", ".js", "-dir", "assets", "tsc", "assets/*.ts", "--outfile", "assets/index.js",
 		},
 		wantCmds: []*WgoCmd{{
-			Roots:  []string{"."},
-			Logger: defaultLogger,
+			Roots: []string{"."},
 			ArgsList: [][]string{
 				{"go", "build", "-o", "out", "-tags", "fts5", "main.go"},
 				{"out", "arg1", "arg2"},
@@ -347,7 +345,6 @@ func TestWgoCommands(t *testing.T) {
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.css`)},
 			DirRegexps:  []*regexp.Regexp{regexp.MustCompile(`assets`)},
-			Logger:      defaultLogger,
 			ArgsList: [][]string{
 				{"sass", "assets/styles.scss", "assets/styles.css"},
 			},
@@ -355,7 +352,6 @@ func TestWgoCommands(t *testing.T) {
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.js`)},
 			DirRegexps:  []*regexp.Regexp{regexp.MustCompile(`assets`)},
-			Logger:      defaultLogger,
 			ArgsList: [][]string{
 				{"tsc", "assets/*.ts", "--outfile", "assets/index.js"},
 			},
@@ -368,8 +364,7 @@ func TestWgoCommands(t *testing.T) {
 			"-trimpath=t", "-p", "5", ".", "arg1", "arg2",
 		},
 		wantCmds: []*WgoCmd{{
-			Roots:  []string{"."},
-			Logger: defaultLogger,
+			Roots: []string{"."},
 			ArgsList: [][]string{
 				{"go", "build", "-o", "out", "-p", "5", "-a", "-n", "-race", "-msan", "-asan", "-work", "-x", "-buildvcs", "-linkshared", "-modcacherw", "-trimpath", "."},
 				{"out", "arg1", "arg2"},
@@ -385,7 +380,6 @@ func TestWgoCommands(t *testing.T) {
 		wantCmds: []*WgoCmd{{
 			Roots:       []string{".", "/secrets"},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`.`)},
-			Logger:      log.New(os.Stderr, "[wgo] ", 0),
 			ArgsList: [][]string{
 				{"echo", "hello"},
 			},
@@ -398,7 +392,6 @@ func TestWgoCommands(t *testing.T) {
 		wantCmds: []*WgoCmd{{
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`.`)},
-			Logger:      defaultLogger,
 			ArgsList: [][]string{
 				{"echo", "::", ":::", "::::"},
 			},
@@ -430,7 +423,11 @@ func TestWgoCommands(t *testing.T) {
 				gotCmds[0].ArgsList[0][3] = "out"
 				gotCmds[0].ArgsList[1][0] = "out"
 			}
-			if diff := Diff(gotCmds, tt.wantCmds); diff != "" {
+			opts := []cmp.Option{
+				// Comparing loggers always fails, ignore it.
+				cmpopts.IgnoreFields(WgoCmd{}, "Logger"),
+			}
+			if diff := Diff(gotCmds, tt.wantCmds, opts...); diff != "" {
 				t.Error(diff)
 			}
 		})
@@ -773,11 +770,11 @@ func TestHelp(t *testing.T) {
 	}
 }
 
-func Diff(got, want interface{}) string {
-	opts := cmp.Options{
+func Diff(got, want interface{}, opts ...cmp.Option) string {
+	opts = append(opts,
 		cmp.Exporter(func(typ reflect.Type) bool { return true }),
 		cmpopts.EquateEmpty(),
-	}
+	)
 	diff := cmp.Diff(got, want, opts...)
 	if diff != "" {
 		return "\n-got +want\n" + diff
