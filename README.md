@@ -39,7 +39,7 @@ It can be used like [`go run`](#wgo-run).
 
 ## Quickstart
 
-*You already know how to use wgo*. Simply slap `wgo` in front of any command in order to have it rerun the moment any file in the current directory (searched recursively) changes.
+*You already know how to use wgo*. Simply slap `wgo` in front of any command in order to have it rerun whenever a file changes.
 
 ```shell
 # Run gcc.
