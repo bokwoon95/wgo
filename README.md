@@ -116,7 +116,13 @@ $ wgo -file .go go test . -race -coverprofile=coverage.out
 
 ## Regex dot literals
 
-Notice how the [-file](#including-and-excluding-files) regex examples used `.html` or `.css`. Technically the dot `.` matches any character, but file extensions are such a common pattern that wgo includes a slight modification to the regex matching rules:
+The [-file](#including-and-excluding-files) flag takes in regexes like `.html` or `.css`.
+
+```shell
+$ wgo run -file .html -file .css main.go
+```
+
+Technically the dot `.` matches any character, but file extensions are such a common pattern that wgo includes a slight modification to the regex matching rules:
 
 *Any dot `.` immediately followed by an alphabet `[a-zA-Z]` is treated as a dot literal i.e. `\.`*
 
