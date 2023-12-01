@@ -87,8 +87,9 @@ type WgoCmd struct {
 	// If provided, Logger is used to log file events.
 	Logger *log.Logger
 
-	// ArgsList is the list of args slices (each args slice corresponding to a
-	// command) to execute.
+	// ArgsList is the list of args slices. Each slice corresponds to a single
+	// command to execute and is of this form [cmd arg1 arg2 arg3...]. A slice
+	// of these commands represent the chain of commands to be executed.
 	ArgsList [][]string
 
 	// Env is sets the environment variables for the commands. Each entry is of
