@@ -115,6 +115,9 @@ type WgoCmd struct {
 	// If Exit is true, WgoCmd exits once the last command exits.
 	Exit bool
 
+	// Debounce duration for file events.
+	Debounce time.Duration
+
 	ctx     context.Context
 	isRun   bool   // Whether the command is `wgo run`.
 	binPath string // Where the built go binary lives.
@@ -166,11 +169,13 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 	}
 
 	// Parse flags.
+	var debounce string
 	flagset := flag.NewFlagSet("", flag.ContinueOnError)
 	flagset.StringVar(&wgoCmd.Dir, "cd", "", "Change to a different directory to run the commands.")
 	flagset.BoolVar(&verbose, "verbose", false, "Log file events.")
 	flagset.BoolVar(&wgoCmd.Exit, "exit", false, "Exit when the last command exits.")
 	flagset.BoolVar(&wgoCmd.EnableStdin, "stdin", false, "Enable stdin for the last command.")
+	flagset.StringVar(&debounce, "debounce", "300ms", "How quickly to react to file events. Lower debounce values will react quicker.")
 	flagset.Func("root", "Specify an additional root directory to watch. Can be repeated.", func(value string) error {
 		root, err := filepath.Abs(value)
 		if err != nil {
@@ -258,6 +263,14 @@ Flags:
 	if verbose {
 		wgoCmd.Logger = log.New(os.Stderr, "[wgo] ", 0)
 	}
+	if debounce == "" {
+		wgoCmd.Debounce = 300 * time.Millisecond
+	} else {
+		wgoCmd.Debounce, err = time.ParseDuration(debounce)
+		if err != nil {
+			return nil, fmt.Errorf("-debounce: %w", err)
+		}
+	}
 
 	// If the command is `wgo run`, prepend a `go build` command to the
 	// ArgsList.
@@ -273,7 +286,7 @@ Flags:
 		if tmpDir == "" {
 			tmpDir = os.TempDir()
 		}
-		wgoCmd.binPath = filepath.Join(tmpDir, "main_"+time.Now().Format("20060102150405")+"_"+strconv.Itoa(rand.Intn(5000)))
+		wgoCmd.binPath = filepath.Join(tmpDir, "wgo_"+time.Now().Format("20060102150405")+"_"+strconv.Itoa(rand.Intn(5000)))
 		if runtime.GOOS == "windows" {
 			wgoCmd.binPath += ".exe"
 		}
@@ -351,8 +364,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	}
 	// Timer is used to debounce events. Each event does not directly trigger a
 	// reload, it only resets the timer. Only when the timer is allowed to
-	// fully expire will the reload actually occur. Debounce delay is currently
-	// hardcoded to 500ms, will change it only if somebody complains.
+	// fully expire will the reload actually occur.
 	timer := time.NewTimer(0)
 	timer.Stop()
 
@@ -467,7 +479,7 @@ func (wgoCmd *WgoCmd) Run() error {
 						continue
 					}
 					if wgoCmd.match(event.Op.String(), event.Name) {
-						timer.Reset(500 * time.Millisecond) // Start the timer.
+						timer.Reset(wgoCmd.Debounce) // Start the timer.
 					}
 				case <-timer.C: // Timer expired, reload commands.
 					stop(cmd)
