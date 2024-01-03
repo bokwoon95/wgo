@@ -434,6 +434,7 @@ func (wgoCmd *WgoCmd) Run() error {
 
 			// Step 2: Run the command in the background.
 			cmdResult := make(chan error, 1)
+			waitDone := make(chan struct{})
 			err = cmd.Start()
 			if err != nil {
 				return err
@@ -441,7 +442,7 @@ func (wgoCmd *WgoCmd) Run() error {
 			go func() {
 				wg.Wait()
 				cmdResult <- cmd.Wait()
-				close(cmdResult)
+				close(waitDone)
 			}()
 
 			// Step 3: Wait for events in the event loop.
@@ -449,7 +450,7 @@ func (wgoCmd *WgoCmd) Run() error {
 				select {
 				case <-wgoCmd.ctx.Done():
 					stop(cmd)
-					<-cmdResult
+					<-waitDone
 					return nil
 				case err := <-cmdResult:
 					if i == len(wgoCmd.ArgsList)-1 {
@@ -483,7 +484,7 @@ func (wgoCmd *WgoCmd) Run() error {
 					}
 				case <-timer.C: // Timer expired, reload commands.
 					stop(cmd)
-					<-cmdResult
+					<-waitDone
 					break CMD_CHAIN
 				}
 			}

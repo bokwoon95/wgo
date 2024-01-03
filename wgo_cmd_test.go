@@ -409,7 +409,7 @@ func TestWgoCommands(t *testing.T) {
 			"wgo", "-debounce", "10ms", "echo", "test",
 		},
 		wantCmds: []*WgoCmd{{
-			Roots:       []string{"."},
+			Roots: []string{"."},
 			ArgsList: [][]string{
 				{"echo", "test"},
 			},
