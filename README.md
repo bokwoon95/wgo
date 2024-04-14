@@ -9,7 +9,7 @@
 ## Installation
 
 ```shell
-$ go install github.com/bokwoon95/wgo@latest
+go install github.com/bokwoon95/wgo@latest
 ```
 
 ```text
