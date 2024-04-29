@@ -1,0 +1,27 @@
+name: 'build'
+on:
+  push:
+    tags:
+      - 'v*'
+jobs:
+  build_and_release:
+    runs-on: 'ubuntu-latest'
+    steps:
+      - name: 'Clone repo'
+        uses: 'actions/checkout@v4'
+      - name: 'Install go'
+        uses: 'actions/setup-go@v5'
+        with:
+          go-version: 'stable'
+      - run: 'GOOS=linux GOARCH=amd64 go build -o wgo-linux .'
+      - run: 'GOOS=linux GOARCH=arm64 go build -o wgo-linux-arm .'
+      - run: 'GOOS=darwin GOARCH=amd64 go build -o wgo-macos .'
+      - run: 'GOOS=darwin GOARCH=arm64 go build -o wgo-macos-apple-silicon .'
+      - run: 'GOOS=windows GOARCH=amd64 go build -o wgo-windows.exe .'
+      - name: 'Create release'
+        uses: 'svenstaro/upload-release-action@v2'
+        with:
+          repo_token: '${{ secrets.GITHUB_TOKEN }}'
+          tag: '${{ github.ref }}'
+          file: 'wgo-*'
+          file_glob: 'true'
