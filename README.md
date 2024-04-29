@@ -8,8 +8,50 @@
 
 ## Installation
 
+**Go**
+
 ```shell
 go install github.com/bokwoon95/wgo@latest
+
+```
+**Linux**
+
+```shell
+# Intel/AMD
+curl -L -o wgo "$(curl -s 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '\s*"browser_download_url":\s*".*wgo-linux"' | sed 's/^\s*"browser_download_url": "\|"$//g')"
+chmod +x ./wgo
+sudo mv ./wgo /usr/local/bin
+```
+
+```shell
+# ARM
+curl -L -o wgo "$(curl -s 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '\s*"browser_download_url":\s*".*wgo-linux-arm"' | sed 's/^\s*"browser_download_url": "\|"$//g')"
+chmod +x ./wgo
+sudo mv ./wgo /usr/local/bin
+```
+
+**macOS**
+
+```shell
+# Intel/AMD
+curl -L -o wgo "$(curl -s 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '\s*"browser_download_url":\s*".*wgo-linux"' | sed 's/^\s*"browser_download_url": "\|"$//g')"
+chmod +x ./wgo
+sudo mv ./wgo /usr/local/bin
+```
+
+```shell
+# Apple Silicon
+curl -L -o wgo "$(curl -s 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '\s*"browser_download_url":\s*".*wgo-linux-apple-silicon"' | sed 's/^\s*"browser_download_url": "\|"$//g')"
+chmod +x ./wgo
+sudo mv ./wgo /usr/local/bin
+```
+
+**Windows**
+
+NOTE: This only downloads the wgo.exe executable, you must move it into PATH yourself.
+
+```powershell
+Invoke-WebRequest -Uri $($(Invoke-RestMethod -Uri 'https://api.github.com/repos/bokwoon95/wgo/releases/latest').assets | Where-Object { $_.name -eq 'wgo-windows.exe' }).browser_download_url -OutFile wgo.exe
 ```
 
 ```text
