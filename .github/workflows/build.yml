@@ -13,11 +13,11 @@ jobs:
         uses: 'actions/setup-go@v5'
         with:
           go-version: 'stable'
-      - run: 'GOOS=linux GOARCH=amd64 go build -o wgo-linux .'
-      - run: 'GOOS=linux GOARCH=arm64 go build -o wgo-linux-arm .'
-      - run: 'GOOS=darwin GOARCH=amd64 go build -o wgo-macos .'
-      - run: 'GOOS=darwin GOARCH=arm64 go build -o wgo-macos-apple-silicon .'
-      - run: 'GOOS=windows GOARCH=amd64 go build -o wgo-windows.exe .'
+      - run: 'GOOS=linux GOARCH=amd64 go build -ldflags "-w" -o wgo-linux .'
+      - run: 'GOOS=linux GOARCH=arm64 go build -ldflags "-w" -o wgo-linux-arm .'
+      - run: 'GOOS=darwin GOARCH=amd64 go build -ldflags "-w" -o wgo-macos .'
+      - run: 'GOOS=darwin GOARCH=arm64 go build -ldflags "-w" -o wgo-macos-apple-silicon .'
+      - run: 'GOOS=windows GOARCH=amd64 go build -ldflags "-w" -o wgo-windows.exe .'
       - name: 'Create release'
         uses: 'svenstaro/upload-release-action@v2'
         with:

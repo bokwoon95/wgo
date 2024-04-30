@@ -318,10 +318,10 @@ See [START\_HERE.md](https://github.com/bokwoon95/wgo/blob/main/START_HERE.md).
 
 ```shell
 # macOS/Linux (replace wgo-macos-apple-silicon with wgo-macos | wgo-linux | wgo-linux-arm)
-curl -L -o wgo "$(curl -s 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '^\s*"browser_download_url":\s*".*wgo-macos-apple-silicon"' | sed 's/^\s*"browser_download_url":\s*"\|"$//g')"
+curl -L -o wgo "$(curl -s 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '^\s*"browser_download_url":\s*".*wgo-macos-apple-silicon"$' | sed 's/^\s*"browser_download_url":\s*"\|"$//g')"
 ```
 
 ```powershell
 # Windows
-Invoke-WebRequest -OutFile wgo.exe -Uri $($(Invoke-RestMethod -Uri 'https://api.github.com/repos/bokwoon95/wgo/releases/latest').assets | Where-Object { $_.name -eq 'wgo-windows.exe' }).browser_download_url
+Invoke-WebRequest -OutFile wgo.exe -Uri ((Invoke-RestMethod -Uri 'https://api.github.com/repos/bokwoon95/wgo/releases/latest').assets | Where-Object { $_.name -eq 'wgo-windows.exe' }).browser_download_url
 ```
