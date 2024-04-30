@@ -318,7 +318,7 @@ See [START\_HERE.md](https://github.com/bokwoon95/wgo/blob/main/START_HERE.md).
 
 ```shell
 # macOS/Linux (replace wgo-macos-apple-silicon with wgo-macos | wgo-linux | wgo-linux-arm)
-curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '^\s*"browser_download_url":\s*".*wgo-macos-apple-silicon"$' | sed 's/^\s*"browser_download_url":\s*"\|"$//g')"
+curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '"browser_download_url":.*wgo-macos-apple-silicon"' | xargs | sed 's/browser_download_url: //g')"
 ```
 
 ```powershell
