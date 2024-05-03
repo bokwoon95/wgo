@@ -316,12 +316,32 @@ See [START\_HERE.md](https://github.com/bokwoon95/wgo/blob/main/START_HERE.md).
 
 ## One-liner to download from releases
 
+### Linux
+
 ```shell
-# macOS/Linux (replace wgo-macos-apple-silicon with wgo-macos | wgo-linux | wgo-linux-arm)
+curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '"browser_download_url": ".*wgo-linux"' | xargs | cut -d ' ' -f 2)"
+```
+
+### Linux (ARM)
+
+```shell
+curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '"browser_download_url": ".*wgo-linux-arm"' | xargs | cut -d ' ' -f 2)"
+```
+
+### macOS
+
+```shell
+curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '"browser_download_url": ".*wgo-macos"' | xargs | cut -d ' ' -f 2)"
+```
+
+### macOS (Apple Silicon)
+
+```shell
 curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '"browser_download_url": ".*wgo-macos-apple-silicon"' | xargs | cut -d ' ' -f 2)"
 ```
 
+### Windows
+
 ```powershell
-# Windows
 Invoke-WebRequest -OutFile wgo.exe -Uri ((Invoke-RestMethod -Uri 'https://api.github.com/repos/bokwoon95/wgo/releases/latest').assets | Where-Object { $_.name -eq 'wgo-windows.exe' }).browser_download_url
 ```
