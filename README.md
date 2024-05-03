@@ -314,7 +314,7 @@ Nothing! File watchers honestly all do the same things, if you find a file watch
 
 See [START\_HERE.md](https://github.com/bokwoon95/wgo/blob/main/START_HERE.md).
 
-## One-liner to download from releases
+## One-liner to download the latest release
 
 ### Linux
 
