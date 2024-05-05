@@ -321,7 +321,7 @@ See [START\_HERE.md](https://github.com/bokwoon95/wgo/blob/main/START_HERE.md).
 [https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux](https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux)
 
 ```shell
-curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '"browser_download_url": ".*wgo-linux"' | xargs | cut -d ' ' -f 2)"
+curl --location --output wgo 'https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux'
 ```
 
 ### Linux (ARM)
@@ -329,7 +329,7 @@ curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo
 [https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux-arm](https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux-arm)
 
 ```shell
-curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '"browser_download_url": ".*wgo-linux-arm"' | xargs | cut -d ' ' -f 2)"
+curl --location --output wgo 'https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux-arm'
 ```
 
 ### macOS
@@ -337,7 +337,7 @@ curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo
 [https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos](https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos)
 
 ```shell
-curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '"browser_download_url": ".*wgo-macos"' | xargs | cut -d ' ' -f 2)"
+curl --location --output wgo 'https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos'
 ```
 
 ### macOS (Apple Silicon)
@@ -345,7 +345,7 @@ curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo
 [https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos-apple-silicon](https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos-apple-silicon)
 
 ```shell
-curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo/releases/latest' | grep '"browser_download_url": ".*wgo-macos-apple-silicon"' | xargs | cut -d ' ' -f 2)"
+curl --location --output wgo 'https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos-apple-silicon'
 ```
 
 ### Windows
@@ -353,5 +353,5 @@ curl --location --output wgo "$(curl 'https://api.github.com/repos/bokwoon95/wgo
 [https://github.com/bokwoon95/wgo/releases/latest/download/wgo-windows.exe](https://github.com/bokwoon95/wgo/releases/latest/download/wgo-windows.exe)
 
 ```powershell
-Invoke-WebRequest -OutFile wgo.exe -Uri ((Invoke-RestMethod -Uri 'https://api.github.com/repos/bokwoon95/wgo/releases/latest').assets | Where-Object { $_.name -eq 'wgo-windows.exe' }).browser_download_url
+Invoke-WebRequest -OutFile wgo.exe -Uri 'https://github.com/bokwoon95/wgo/releases/latest/download/wgo-windows.exe'
 ```
