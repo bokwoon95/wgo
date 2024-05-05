@@ -8,7 +8,7 @@
 
 ## Installation
 
-You can [download](#one-liner-to-download-from-releases) binaries from [the release page](https://github.com/bokwoon95/wgo/releases/latest), or use the Go command:
+You can [download](#one-liner-to-download-the-latest-release) binaries from [the release page](https://github.com/bokwoon95/wgo/releases/latest), or use the Go command:
 
 ```shell
 go install github.com/bokwoon95/wgo@latest
