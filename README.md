@@ -277,7 +277,7 @@ If the -verbose flag is provided, file events are logged.
 Without -verbose:
 
 ```shell
-$ wgo run -verbose ./server
+$ wgo run ./server
 Listening on localhost:8080
 Listening on localhost:8080 # <-- file edited.
 ```
