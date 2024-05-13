@@ -316,6 +316,8 @@ See [START\_HERE.md](https://github.com/bokwoon95/wgo/blob/main/START_HERE.md).
 
 ## Download the latest release
 
+[Release page](https://github.com/bokwoon95/wgo/releases/latest)
+
 ### Linux
 
 [https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux](https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux)
@@ -329,7 +331,7 @@ curl --location --output wgo 'https://github.com/bokwoon95/wgo/releases/latest/d
 [https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux-arm](https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux-arm)
 
 ```shell
-curl --location --output wgo 'https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux-arm'
+curl --location --output wgo "https://github.com/bokwoon95/wgo/releases/latest/download/wgo-linux-arm"
 ```
 
 ### macOS
@@ -337,7 +339,7 @@ curl --location --output wgo 'https://github.com/bokwoon95/wgo/releases/latest/d
 [https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos](https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos)
 
 ```shell
-curl --location --output wgo 'https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos'
+curl --location --output wgo "https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos"
 ```
 
 ### macOS (Apple Silicon)
@@ -345,13 +347,13 @@ curl --location --output wgo 'https://github.com/bokwoon95/wgo/releases/latest/d
 [https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos-apple-silicon](https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos-apple-silicon)
 
 ```shell
-curl --location --output wgo 'https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos-apple-silicon'
+curl --location --output wgo "https://github.com/bokwoon95/wgo/releases/latest/download/wgo-macos-apple-silicon"
 ```
 
 ### Windows
 
 [https://github.com/bokwoon95/wgo/releases/latest/download/wgo-windows.exe](https://github.com/bokwoon95/wgo/releases/latest/download/wgo-windows.exe)
 
-```powershell
-Invoke-WebRequest -OutFile wgo.exe -Uri 'https://github.com/bokwoon95/wgo/releases/latest/download/wgo-windows.exe'
+```bat
+curl --location --output wgo.exe "https://github.com/bokwoon95/wgo/releases/latest/download/wgo-windows.exe"
 ```
