@@ -118,6 +118,14 @@ type WgoCmd struct {
 	// Debounce duration for file events.
 	Debounce time.Duration
 
+	// EnablePolling controls whether polling is used (the default is
+	// fsnotify).
+	EnablePolling bool
+
+	// PollDuration is the duration at which we poll for events (EnablePolling
+	// must be true).
+	PollDuration time.Duration
+
 	ctx     context.Context
 	isRun   bool   // Whether the command is `wgo run`.
 	binPath string // Where the built go binary lives.
