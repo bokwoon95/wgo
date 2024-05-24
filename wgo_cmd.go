@@ -23,6 +23,8 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+// TODO: pollDirectory sets up a map and a
+
 // String flag names copied from `go help build`.
 var strFlagNames = []string{
 	"p", "asmflags", "buildmode", "compiler", "gccgoflags", "gcflags",
@@ -121,6 +123,9 @@ type WgoCmd struct {
 	// PollDuration is the duration at which we poll for events. The zero value
 	// means no polling.
 	PollDuration time.Duration
+
+	// pollGroup tracks how many goroutines are currently polling.
+	pollGroup sync.WaitGroup
 
 	ctx     context.Context
 	isRun   bool   // Whether the command is `wgo run`.
