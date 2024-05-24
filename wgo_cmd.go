@@ -115,15 +115,11 @@ type WgoCmd struct {
 	// If Exit is true, WgoCmd exits once the last command exits.
 	Exit bool
 
-	// Debounce duration for file events.
-	Debounce time.Duration
+	// DebounceDuration is the debounce duration for file events.
+	DebounceDuration time.Duration
 
-	// EnablePolling controls whether polling is used (the default is
-	// to use file notifications instead of polling).
-	EnablePolling bool
-
-	// PollDuration is the duration at which we poll for events (EnablePolling
-	// must be true).
+	// PollDuration is the duration at which we poll for events. The zero value
+	// means no polling.
 	PollDuration time.Duration
 
 	ctx     context.Context
@@ -177,13 +173,14 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 	}
 
 	// Parse flags.
-	var debounce string
+	var debounce, poll string
 	flagset := flag.NewFlagSet("", flag.ContinueOnError)
 	flagset.StringVar(&wgoCmd.Dir, "cd", "", "Change to a different directory to run the commands.")
 	flagset.BoolVar(&verbose, "verbose", false, "Log file events.")
 	flagset.BoolVar(&wgoCmd.Exit, "exit", false, "Exit when the last command exits.")
 	flagset.BoolVar(&wgoCmd.EnableStdin, "stdin", false, "Enable stdin for the last command.")
 	flagset.StringVar(&debounce, "debounce", "300ms", "How quickly to react to file events. Lower debounce values will react quicker.")
+	flagset.StringVar(&poll, "poll", "1s", "How often to poll for file changes. No value means no polling.")
 	flagset.Func("root", "Specify an additional root directory to watch. Can be repeated.", func(value string) error {
 		root, err := filepath.Abs(value)
 		if err != nil {
@@ -271,12 +268,18 @@ Flags:
 	if verbose {
 		wgoCmd.Logger = log.New(os.Stderr, "[wgo] ", 0)
 	}
-	if debounce == "" {
-		wgoCmd.Debounce = 300 * time.Millisecond
-	} else {
-		wgoCmd.Debounce, err = time.ParseDuration(debounce)
+	if debounce != "" {
+		wgoCmd.DebounceDuration, err = time.ParseDuration(debounce)
 		if err != nil {
 			return nil, fmt.Errorf("-debounce: %w", err)
+		}
+	} else {
+		wgoCmd.DebounceDuration = 300 * time.Millisecond
+	}
+	if poll != "" {
+		wgoCmd.PollDuration, err = time.ParseDuration(poll)
+		if err != nil {
+			return nil, fmt.Errorf("-poll: %w", err)
 		}
 	}
 
@@ -488,7 +491,7 @@ func (wgoCmd *WgoCmd) Run() error {
 						continue
 					}
 					if wgoCmd.match(event.Op.String(), event.Name) {
-						timer.Reset(wgoCmd.Debounce) // Start the timer.
+						timer.Reset(wgoCmd.DebounceDuration) // Start the timer.
 					}
 				case <-timer.C: // Timer expired, reload commands.
 					stop(cmd)

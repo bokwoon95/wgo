@@ -325,7 +325,7 @@ func TestWgoCommands(t *testing.T) {
 				{"echo", "running..."},
 				{"./hello_world"},
 			},
-			Debounce: 300 * time.Millisecond,
+			DebounceDuration: 300 * time.Millisecond,
 		}},
 	}, {
 		description: "parallel commands",
@@ -340,7 +340,7 @@ func TestWgoCommands(t *testing.T) {
 				{"go", "build", "-o", "out", "-tags", "fts5", "main.go"},
 				{"out", "arg1", "arg2"},
 			},
-			Debounce: 300 * time.Millisecond,
+			DebounceDuration: 300 * time.Millisecond,
 			isRun:    true,
 			binPath:  "out",
 		}, {
@@ -350,7 +350,7 @@ func TestWgoCommands(t *testing.T) {
 			ArgsList: [][]string{
 				{"sass", "assets/styles.scss", "assets/styles.css"},
 			},
-			Debounce: 300 * time.Millisecond,
+			DebounceDuration: 300 * time.Millisecond,
 		}, {
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.js`)},
@@ -358,7 +358,7 @@ func TestWgoCommands(t *testing.T) {
 			ArgsList: [][]string{
 				{"tsc", "assets/*.ts", "--outfile", "assets/index.js"},
 			},
-			Debounce: 300 * time.Millisecond,
+			DebounceDuration: 300 * time.Millisecond,
 		}},
 	}, {
 		description: "build flags",
@@ -373,7 +373,7 @@ func TestWgoCommands(t *testing.T) {
 				{"go", "build", "-o", "out", "-p", "5", "-a", "-n", "-race", "-msan", "-asan", "-work", "-x", "-buildvcs", "-linkshared", "-modcacherw", "-trimpath", "."},
 				{"out", "arg1", "arg2"},
 			},
-			Debounce: 300 * time.Millisecond,
+			DebounceDuration: 300 * time.Millisecond,
 			isRun:    true,
 			binPath:  "out",
 		}},
@@ -388,7 +388,7 @@ func TestWgoCommands(t *testing.T) {
 			ArgsList: [][]string{
 				{"echo", "hello"},
 			},
-			Debounce: 300 * time.Millisecond,
+			DebounceDuration: 300 * time.Millisecond,
 		}},
 	}, {
 		description: "escaped ::",
@@ -401,7 +401,7 @@ func TestWgoCommands(t *testing.T) {
 			ArgsList: [][]string{
 				{"echo", "::", ":::", "::::"},
 			},
-			Debounce: 300 * time.Millisecond,
+			DebounceDuration: 300 * time.Millisecond,
 		}},
 	}, {
 		description: "debounce flag",
@@ -413,7 +413,7 @@ func TestWgoCommands(t *testing.T) {
 			ArgsList: [][]string{
 				{"echo", "test"},
 			},
-			Debounce: 10 * time.Millisecond,
+			DebounceDuration: 10 * time.Millisecond,
 		}},
 	}}
 
