@@ -119,7 +119,7 @@ type WgoCmd struct {
 	Debounce time.Duration
 
 	// EnablePolling controls whether polling is used (the default is
-	// fsnotify).
+	// to use file notifications instead of polling).
 	EnablePolling bool
 
 	// PollDuration is the duration at which we poll for events (EnablePolling
