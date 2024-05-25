@@ -730,7 +730,7 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 				}()
 			}
 		}
-		// Stop watching child items that no longer exist.
+		// For the child items that no longer exist, cancel their goroutines.
 		for childName, cancel := range cancelFuncs {
 			if !childExists[childName] {
 				cancel()
