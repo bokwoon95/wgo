@@ -23,7 +23,9 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// TODO: pollDirectory sets up a map and a
+// TODO: pollDirectory sets up a map[string]struct{}
+// TODO: pollFile sets up a var fileInfo fs.FileInfo
+// all pollDirectory needs to do is poll fs.ReadFile(root) every 1 second and spin up new pollFile goroutines whenever it detects a new file not already in the map.
 
 // String flag names copied from `go help build`.
 var strFlagNames = []string{
@@ -185,7 +187,7 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 	flagset.BoolVar(&wgoCmd.Exit, "exit", false, "Exit when the last command exits.")
 	flagset.BoolVar(&wgoCmd.EnableStdin, "stdin", false, "Enable stdin for the last command.")
 	flagset.StringVar(&debounce, "debounce", "300ms", "How quickly to react to file events. Lower debounce values will react quicker.")
-	flagset.StringVar(&poll, "poll", "1s", "How often to poll for file changes. No value means no polling.")
+	flagset.StringVar(&poll, "poll", "", "How often to poll for file changes e.g. 1s. No value means no polling.")
 	flagset.Func("root", "Specify an additional root directory to watch. Can be repeated.", func(value string) error {
 		root, err := filepath.Abs(value)
 		if err != nil {
