@@ -734,6 +734,7 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 		for childName, cancel := range cancelFuncs {
 			if !childExists[childName] {
 				cancel()
+				delete(cancelFuncs, childName)
 			}
 		}
 	}
