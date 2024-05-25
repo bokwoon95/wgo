@@ -480,21 +480,31 @@ func (wgoCmd *WgoCmd) Run() error {
 				case err := <-watcher.Errors:
 					wgoCmd.Logger.Println(err)
 				case event := <-watcher.Events:
-					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) {
+					// We don't handle Remove events because once an item has
+					// been deleted, we cannot determine if it is a file or
+					// directory. Therefore, we cannot determine which regex
+					// matching rules should apply (-file/-xfile for files,
+					// -dir/-xdir for directories).
+					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) {
 						continue
 					}
-					fileinfo, err := os.Stat(event.Name)
+					fileInfo, err := os.Stat(event.Name)
 					if err != nil {
 						continue
 					}
-					if fileinfo.IsDir() {
+					if fileInfo.IsDir() {
 						if event.Has(fsnotify.Create) {
 							wgoCmd.addDirsRecursively(watcher, event.Name)
 						}
-						continue
-					}
-					if wgoCmd.match(event.Op.String(), event.Name) {
-						timer.Reset(wgoCmd.DebounceDuration) // Start/reset the timer.
+						if wgoCmd.matchDir(event.Op.String(), event.Name) {
+							timer.Reset(wgoCmd.DebounceDuration)
+						} else {
+						}
+					} else {
+						if wgoCmd.matchFile(event.Op.String(), event.Name) {
+							timer.Reset(wgoCmd.DebounceDuration)
+						} else {
+						}
 					}
 				case <-timer.C: // Timer expired, reload commands.
 					stop(cmd)
@@ -595,63 +605,98 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 	})
 }
 
-// match checks if a given file path should trigger a reload. The op string is
-// provided only for logging purposes, it is not actually used.
-func (wgoCmd *WgoCmd) match(op string, path string) bool {
-	normalizedFile := filepath.ToSlash(path)
-	normalizedDir := filepath.ToSlash(filepath.Dir(normalizedFile))
+// TODO: for matchDir and matchFile, remove the op string requirement. In
+// return, matchDir and matchFile expect their arguments to already be
+// normalized to forward slashes. That way, the caller of matchDir and
+// matchFile can log the match result instead of relying on matchDir or
+// matchFile to do so.
+
+func (wgoCmd *WgoCmd) matchDir(op string, dirPath string) bool {
+	normalizedDirPath := filepath.ToSlash(dirPath)
 	for _, root := range wgoCmd.Roots {
 		root += string(os.PathSeparator)
-		if strings.HasPrefix(path, root) {
-			normalizedFile = filepath.ToSlash(strings.TrimPrefix(path, root))
-			normalizedDir = filepath.ToSlash(filepath.Dir(normalizedFile))
+		if strings.HasPrefix(dirPath, root) {
+			normalizedDirPath = filepath.ToSlash(filepath.Dir(normalizedDirPath))
 			break
 		}
 	}
 	for _, r := range wgoCmd.ExcludeDirRegexps {
-		if r.MatchString(normalizedDir) {
-			wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+		if r.MatchString(normalizedDirPath) {
+			wgoCmd.Logger.Println("(skip)", op, normalizedDirPath)
+			return false
+		}
+	}
+	for _, r := range wgoCmd.DirRegexps {
+		if r.MatchString(normalizedDirPath) {
+			wgoCmd.Logger.Println(op, normalizedDirPath)
+			return true
+		}
+	}
+	if len(wgoCmd.FileRegexps) == 0 {
+		wgoCmd.Logger.Println(op, normalizedDirPath)
+		return true
+	}
+	wgoCmd.Logger.Println("(skip)", op, normalizedDirPath)
+	return false
+}
+
+// matchFile checks if a given file path should trigger a reload. The op string is
+// provided only for logging purposes, it is not actually used.
+func (wgoCmd *WgoCmd) matchFile(op string, filePath string) bool {
+	normalizedFilePath := filepath.ToSlash(filePath)
+	normalizedDirPath := filepath.ToSlash(filepath.Dir(normalizedFilePath))
+	for _, root := range wgoCmd.Roots {
+		root += string(os.PathSeparator)
+		if strings.HasPrefix(filePath, root) {
+			normalizedFilePath = filepath.ToSlash(strings.TrimPrefix(filePath, root))
+			normalizedDirPath = filepath.ToSlash(filepath.Dir(normalizedFilePath))
+			break
+		}
+	}
+	for _, r := range wgoCmd.ExcludeDirRegexps {
+		if r.MatchString(normalizedDirPath) {
+			wgoCmd.Logger.Println("(skip)", op, normalizedFilePath)
 			return false
 		}
 	}
 	if len(wgoCmd.DirRegexps) > 0 {
 		matched := false
 		for _, r := range wgoCmd.DirRegexps {
-			if r.MatchString(normalizedDir) {
+			if r.MatchString(normalizedDirPath) {
 				matched = true
 				break
 			}
 		}
 		if !matched {
-			wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+			wgoCmd.Logger.Println("(skip)", op, normalizedFilePath)
 			return false
 		}
 	}
 	for _, r := range wgoCmd.ExcludeFileRegexps {
-		if r.MatchString(normalizedFile) {
-			wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+		if r.MatchString(normalizedFilePath) {
+			wgoCmd.Logger.Println("(skip)", op, normalizedFilePath)
 			return false
 		}
 	}
 	for _, r := range wgoCmd.FileRegexps {
-		if r.MatchString(normalizedFile) {
-			wgoCmd.Logger.Println(op, normalizedFile)
+		if r.MatchString(normalizedFilePath) {
+			wgoCmd.Logger.Println(op, normalizedFilePath)
 			return true
 		}
 	}
 	if wgoCmd.isRun {
-		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
-			wgoCmd.Logger.Println(op, normalizedFile)
+		if strings.HasSuffix(filePath, ".go") && !strings.HasSuffix(filePath, "_test.go") {
+			wgoCmd.Logger.Println(op, normalizedFilePath)
 			return true
 		}
-		wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+		wgoCmd.Logger.Println("(skip)", op, normalizedFilePath)
 		return false
 	}
 	if len(wgoCmd.FileRegexps) == 0 {
-		wgoCmd.Logger.Println(op, normalizedFile)
+		wgoCmd.Logger.Println(op, normalizedFilePath)
 		return true
 	}
-	wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+	wgoCmd.Logger.Println("(skip)", op, normalizedFilePath)
 	return false
 }
 
@@ -665,9 +710,16 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 	}
 	for _, dirEntry := range dirEntries {
 		childName := filepath.Join(name, dirEntry.Name())
+		isDir := dirEntry.IsDir()
+		if isDir {
+			if !wgoCmd.matchDir("", childName) {
+				continue
+			}
+		} else {
+		}
 		ctx, cancel := context.WithCancel(ctx)
 		cancelFuncs[childName] = cancel
-		if dirEntry.IsDir() {
+		if isDir {
 			wg.Add(1)
 			go func() {
 				wg.Done()
@@ -688,10 +740,10 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 		wg.Wait()
 	}()
 
-	// childExists map is used to note down child items that exist in the
-	// current directory for each loop iteration. Declare it outside the loop
-	// so that we can reuse it instead of creating a new map each time.
-	childExists := make(map[string]bool)
+	// seen tracks which items we have already seen (in each loop iteration).
+	// We are declaring it outside the loop instead of inside the loop so that
+	// we can reuse the map.
+	seen := make(map[string]bool)
 
 	for {
 		time.Sleep(wgoCmd.PollDuration)
@@ -704,12 +756,12 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 			wgoCmd.Logger.Println(err)
 			return
 		}
-		for childName := range childExists {
-			delete(childExists, childName)
+		for childName := range seen {
+			delete(seen, childName)
 		}
 		for _, dirEntry := range dirEntries {
 			childName := filepath.Join(name, dirEntry.Name())
-			childExists[childName] = true
+			seen[childName] = true
 			_, ok := cancelFuncs[childName]
 			if ok {
 				continue
@@ -726,13 +778,17 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
+					fileEvents <- fsnotify.Event{
+						Name: childName,
+						Op:   fsnotify.Create,
+					}
 					wgoCmd.pollFile(ctx, childName, fileEvents)
 				}()
 			}
 		}
 		// For the child items that no longer exist, cancel their goroutines.
 		for childName, cancel := range cancelFuncs {
-			if !childExists[childName] {
+			if !seen[childName] {
 				cancel()
 				delete(cancelFuncs, childName)
 			}
@@ -741,4 +797,32 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 }
 
 func (wgoCmd *WgoCmd) pollFile(ctx context.Context, name string, fileEvents chan<- fsnotify.Event) {
+	fileInfo, err := os.Stat(name)
+	if err != nil {
+		wgoCmd.Logger.Println(err)
+		return
+	}
+	oldModTime := fileInfo.ModTime()
+	oldSize := fileInfo.Size()
+	_, _ = oldModTime, oldSize
+	for {
+		time.Sleep(wgoCmd.PollDuration)
+		err := ctx.Err()
+		if err != nil {
+			return
+		}
+		fileInfo, err := os.Stat(name)
+		if err != nil {
+			wgoCmd.Logger.Println(err)
+			return
+		}
+		newModTime := fileInfo.ModTime()
+		newSize := fileInfo.Size()
+		if newModTime != oldModTime || newSize != oldSize {
+			fileEvents <- fsnotify.Event{
+				Name: name,
+				Op:   fsnotify.Create,
+			}
+		}
+	}
 }

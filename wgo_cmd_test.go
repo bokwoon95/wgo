@@ -190,7 +190,7 @@ func TestWgoCmd_match(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := wgoCmd.match("", path)
+			got := wgoCmd.matchFile("", path)
 			if !got && tt.want {
 				t.Errorf("%v failed to match %q", tt.args, tt.path)
 			} else if got && !tt.want {
