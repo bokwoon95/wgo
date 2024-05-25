@@ -26,6 +26,7 @@ import (
 // TODO: pollDirectory sets up a map[string]struct{}
 // TODO: pollFile sets up a var fileInfo fs.FileInfo
 // all pollDirectory needs to do is poll fs.ReadFile(root) every 1 second and spin up new pollFile goroutines whenever it detects a new file not already in the map.
+// TODO: pollFile only needs to stat a filePath every 1s and send events if it detects that it has changed. If it no longer detects the file, don't exit. Wait for the exit signal from the parent goroutine.
 
 // String flag names copied from `go help build`.
 var strFlagNames = []string{
