@@ -23,11 +23,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// TODO: pollDirectory sets up a map[string]struct{}
-// TODO: pollFile sets up a var fileInfo fs.FileInfo
-// all pollDirectory needs to do is poll fs.ReadFile(root) every 1 second and spin up new pollFile goroutines whenever it detects a new file not already in the map.
-// TODO: pollFile only needs to stat a filePath every 1s and send events if it detects that it has changed. If it no longer detects the file, don't exit. Wait for the exit signal from the parent goroutine.
-
 // String flag names copied from `go help build`.
 var strFlagNames = []string{
 	"p", "asmflags", "buildmode", "compiler", "gccgoflags", "gcflags",
@@ -499,7 +494,7 @@ func (wgoCmd *WgoCmd) Run() error {
 						continue
 					}
 					if wgoCmd.match(event.Op.String(), event.Name) {
-						timer.Reset(wgoCmd.DebounceDuration) // Start the timer.
+						timer.Reset(wgoCmd.DebounceDuration) // Start/reset the timer.
 					}
 				case <-timer.C: // Timer expired, reload commands.
 					stop(cmd)
@@ -658,4 +653,91 @@ func (wgoCmd *WgoCmd) match(op string, path string) bool {
 	}
 	wgoCmd.Logger.Println("(skip)", op, normalizedFile)
 	return false
+}
+
+func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents chan<- fsnotify.Event) {
+	var wg sync.WaitGroup
+	cancelFuncs := make(map[string]func())
+	dirEntries, err := os.ReadDir(name)
+	if err != nil {
+		wgoCmd.Logger.Println(err)
+		return
+	}
+	for _, dirEntry := range dirEntries {
+		childName := filepath.Join(name, dirEntry.Name())
+		ctx, cancel := context.WithCancel(ctx)
+		cancelFuncs[childName] = cancel
+		if dirEntry.IsDir() {
+			wg.Add(1)
+			go func() {
+				wg.Done()
+				wgoCmd.pollDirectory(ctx, childName, fileEvents)
+			}()
+		} else {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				wgoCmd.pollFile(ctx, childName, fileEvents)
+			}()
+		}
+	}
+	defer func() {
+		for _, cancel := range cancelFuncs {
+			cancel()
+		}
+		wg.Wait()
+	}()
+
+	// childExists map is used to note down child items that exist in the
+	// current directory for each loop iteration. Declare it outside the loop
+	// so that we can reuse it instead of creating a new map each time.
+	childExists := make(map[string]bool)
+
+	for {
+		time.Sleep(wgoCmd.PollDuration)
+		err := ctx.Err()
+		if err != nil {
+			return
+		}
+		dirEntries, err := os.ReadDir(name)
+		if err != nil {
+			wgoCmd.Logger.Println(err)
+			return
+		}
+		for childName := range childExists {
+			delete(childExists, childName)
+		}
+		for _, dirEntry := range dirEntries {
+			childName := filepath.Join(name, dirEntry.Name())
+			childExists[childName] = true
+			_, ok := cancelFuncs[childName]
+			if ok {
+				continue
+			}
+			ctx, cancel := context.WithCancel(ctx)
+			cancelFuncs[childName] = cancel
+			if dirEntry.IsDir() {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					wgoCmd.pollDirectory(ctx, childName, fileEvents)
+				}()
+			} else {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					wgoCmd.pollFile(ctx, childName, fileEvents)
+				}()
+			}
+		}
+		// Stop watching child items that no longer exist.
+		for childName, cancel := range cancelFuncs {
+			if !childExists[childName] {
+				cancel()
+			}
+		}
+	}
+}
+
+func (wgoCmd *WgoCmd) pollFile(ctx context.Context, name string, fileEvents chan<- fsnotify.Event) {
 }
