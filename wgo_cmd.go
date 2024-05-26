@@ -492,18 +492,23 @@ func (wgoCmd *WgoCmd) Run() error {
 					if err != nil {
 						continue
 					}
+					name := filepath.ToSlash(event.Name)
 					if fileInfo.IsDir() {
 						if event.Has(fsnotify.Create) {
 							wgoCmd.addDirsRecursively(watcher, event.Name)
 						}
-						if wgoCmd.matchDir(event.Op.String(), event.Name) {
+						if wgoCmd.matchDir(name) {
 							timer.Reset(wgoCmd.DebounceDuration)
+							wgoCmd.Logger.Println(event.Op.String(), name)
 						} else {
+							wgoCmd.Logger.Println("(skip)", event.Op.String(), name)
 						}
 					} else {
 						if wgoCmd.matchFile(event.Op.String(), event.Name) {
 							timer.Reset(wgoCmd.DebounceDuration)
+							wgoCmd.Logger.Println(event.Op.String(), name)
 						} else {
+							wgoCmd.Logger.Println("(skip)", event.Op.String(), name)
 						}
 					}
 				case <-timer.C: // Timer expired, reload commands.
@@ -611,32 +616,26 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 // matchFile can log the match result instead of relying on matchDir or
 // matchFile to do so.
 
-func (wgoCmd *WgoCmd) matchDir(op string, dirPath string) bool {
-	normalizedDirPath := filepath.ToSlash(dirPath)
+func (wgoCmd *WgoCmd) matchDir(name string) bool {
 	for _, root := range wgoCmd.Roots {
-		root += string(os.PathSeparator)
-		if strings.HasPrefix(dirPath, root) {
-			normalizedDirPath = filepath.ToSlash(filepath.Dir(normalizedDirPath))
+		if strings.HasPrefix(name, root+string(os.PathSeparator)) {
+			name = filepath.ToSlash(filepath.Dir(name))
 			break
 		}
 	}
 	for _, r := range wgoCmd.ExcludeDirRegexps {
-		if r.MatchString(normalizedDirPath) {
-			wgoCmd.Logger.Println("(skip)", op, normalizedDirPath)
+		if r.MatchString(name) {
 			return false
 		}
 	}
 	for _, r := range wgoCmd.DirRegexps {
-		if r.MatchString(normalizedDirPath) {
-			wgoCmd.Logger.Println(op, normalizedDirPath)
+		if r.MatchString(name) {
 			return true
 		}
 	}
 	if len(wgoCmd.FileRegexps) == 0 {
-		wgoCmd.Logger.Println(op, normalizedDirPath)
 		return true
 	}
-	wgoCmd.Logger.Println("(skip)", op, normalizedDirPath)
 	return false
 }
 
