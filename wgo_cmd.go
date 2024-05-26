@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -45,7 +44,8 @@ func init() {
 // WgoCmd implements the `wgo` command.
 type WgoCmd struct {
 	// The root directories to watch for changes in. Earlier roots have higher
-	// precedence than later roots (used during file matching).
+	// precedence than later roots (used during file matching). Roots must
+	// always use forward slash file separators, even on Windows.
 	Roots []string
 
 	// FileRegexps specifies the file patterns to include. They are matched
@@ -122,9 +122,6 @@ type WgoCmd struct {
 	// means no polling.
 	PollDuration time.Duration
 
-	// pollGroup tracks how many goroutines are currently polling.
-	pollGroup sync.WaitGroup
-
 	ctx     context.Context
 	isRun   bool   // Whether the command is `wgo run`.
 	binPath string // Where the built go binary lives.
@@ -165,7 +162,7 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 		return nil, err
 	}
 	wgoCmd := WgoCmd{
-		Roots:  []string{cwd},
+		Roots:  []string{filepath.ToSlash(cwd)},
 		Logger: defaultLogger,
 		ctx:    ctx,
 	}
@@ -189,7 +186,7 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 		if err != nil {
 			return err
 		}
-		wgoCmd.Roots = append(wgoCmd.Roots, root)
+		wgoCmd.Roots = append(wgoCmd.Roots, filepath.ToSlash(root))
 		return nil
 	})
 	flagset.Func("file", "Include file regex. Can be repeated.", func(value string) error {
@@ -300,7 +297,11 @@ Flags:
 		if tmpDir == "" {
 			tmpDir = os.TempDir()
 		}
-		wgoCmd.binPath = filepath.Join(tmpDir, "wgo_"+time.Now().Format("20060102150405")+"_"+strconv.Itoa(rand.Intn(5000)))
+		pkg := flagArgs[0]
+		if pkg == "." {
+			pkg = filepath.Base(cwd)
+		}
+		wgoCmd.binPath = filepath.Join(tmpDir, "wgo-"+time.Now().Format("2006-01-02-150405-999"), pkg)
 		if runtime.GOOS == "windows" {
 			wgoCmd.binPath += ".exe"
 		}
@@ -357,12 +358,12 @@ func (wgoCmd *WgoCmd) Run() error {
 	if wgoCmd.Logger == nil {
 		wgoCmd.Logger = defaultLogger
 	}
-	for i := range wgoCmd.Roots {
-		var err error
-		wgoCmd.Roots[i], err = filepath.Abs(wgoCmd.Roots[i])
+	for i, root := range wgoCmd.Roots {
+		root, err := filepath.Abs(root)
 		if err != nil {
 			return err
 		}
+		wgoCmd.Roots[i] = filepath.ToSlash(root)
 	}
 	if wgoCmd.binPath != "" {
 		defer os.Remove(wgoCmd.binPath)
@@ -374,7 +375,11 @@ func (wgoCmd *WgoCmd) Run() error {
 	}
 	defer watcher.Close()
 	for _, root := range wgoCmd.Roots {
-		wgoCmd.addDirsRecursively(watcher, root)
+		if wgoCmd.PollDuration == 0 {
+			wgoCmd.addDirsRecursively(watcher, root)
+		} else {
+			wgoCmd.pollDirectory(wgoCmd.ctx, root, watcher.Events)
+		}
 	}
 	// Timer is used to debounce events. Each event does not directly trigger a
 	// reload, it only resets the timer. Only when the timer is allowed to
@@ -484,7 +489,7 @@ func (wgoCmd *WgoCmd) Run() error {
 					// been deleted, we cannot determine if it is a file or
 					// directory. Therefore, we cannot determine which regex
 					// matching rules should apply (-file/-xfile for files,
-					// -dir/-xdir for directories).
+					// -dir/-xdir for directories). So we ignore deleted files.
 					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) {
 						continue
 					}
@@ -494,19 +499,19 @@ func (wgoCmd *WgoCmd) Run() error {
 					}
 					name := filepath.ToSlash(event.Name)
 					if fileInfo.IsDir() {
-						if event.Has(fsnotify.Create) {
+						if wgoCmd.PollDuration == 0 && event.Has(fsnotify.Create) {
 							wgoCmd.addDirsRecursively(watcher, event.Name)
 						}
 						if wgoCmd.matchDir(name) {
-							timer.Reset(wgoCmd.DebounceDuration)
 							wgoCmd.Logger.Println(event.Op.String(), name)
+							timer.Reset(wgoCmd.DebounceDuration)
 						} else {
 							wgoCmd.Logger.Println("(skip)", event.Op.String(), name)
 						}
 					} else {
-						if wgoCmd.matchFile(event.Op.String(), event.Name) {
-							timer.Reset(wgoCmd.DebounceDuration)
+						if wgoCmd.matchFile(event.Name) {
 							wgoCmd.Logger.Println(event.Op.String(), name)
+							timer.Reset(wgoCmd.DebounceDuration)
 						} else {
 							wgoCmd.Logger.Println("(skip)", event.Op.String(), name)
 						}
@@ -564,48 +569,47 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 	for _, root := range wgoCmd.Roots {
 		roots[root] = struct{}{}
 	}
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if !d.IsDir() {
 			return nil
 		}
-		normalizedDir := filepath.ToSlash(path)
-		_, isRoot := roots[path]
+		name = filepath.ToSlash(name)
+		_, isRoot := roots[name]
 		if isRoot {
-			wgoCmd.Logger.Println("WATCH", normalizedDir)
-			watcher.Add(path)
+			wgoCmd.Logger.Println("WATCH", name)
+			watcher.Add(name)
 			return nil
 		}
 		for _, root := range wgoCmd.Roots {
-			if strings.HasPrefix(path, root+string(filepath.Separator)) {
-				normalizedDir = filepath.ToSlash(strings.TrimPrefix(path, root+string(filepath.Separator)))
+			if strings.HasPrefix(name, root+"/") {
+				name = strings.TrimPrefix(name, root+"/")
 				break
 			}
 		}
 		for _, r := range wgoCmd.ExcludeDirRegexps {
-			if r.MatchString(normalizedDir) {
+			if r.MatchString(name) {
 				return filepath.SkipDir
 			}
 		}
 		for _, r := range wgoCmd.DirRegexps {
-			if r.MatchString(normalizedDir) {
-				wgoCmd.Logger.Println("WATCH", normalizedDir)
-				watcher.Add(path)
+			if r.MatchString(name) {
+				wgoCmd.Logger.Println("WATCH", name)
+				watcher.Add(name)
 				return nil
 			}
 		}
-		name := filepath.Base(path)
-		switch name {
+		switch filepath.Base(name) {
 		case ".git", ".hg", ".svn", ".idea", ".vscode", ".settings", "node_modules":
 			return filepath.SkipDir
 		}
-		if strings.HasPrefix(name, ".") {
+		if strings.HasPrefix(filepath.Base(name), ".") {
 			return filepath.SkipDir
 		}
-		wgoCmd.Logger.Println("WATCH", normalizedDir)
-		watcher.Add(path)
+		wgoCmd.Logger.Println("WATCH", name)
+		watcher.Add(name)
 		return nil
 	})
 }
@@ -618,8 +622,8 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 
 func (wgoCmd *WgoCmd) matchDir(name string) bool {
 	for _, root := range wgoCmd.Roots {
-		if strings.HasPrefix(name, root+string(os.PathSeparator)) {
-			name = filepath.ToSlash(filepath.Dir(name))
+		if strings.HasPrefix(name, root+"/") {
+			name = strings.TrimPrefix(name, root+"/")
 			break
 		}
 	}
@@ -641,20 +645,17 @@ func (wgoCmd *WgoCmd) matchDir(name string) bool {
 
 // matchFile checks if a given file path should trigger a reload. The op string is
 // provided only for logging purposes, it is not actually used.
-func (wgoCmd *WgoCmd) matchFile(op string, filePath string) bool {
-	normalizedFilePath := filepath.ToSlash(filePath)
-	normalizedDirPath := filepath.ToSlash(filepath.Dir(normalizedFilePath))
+func (wgoCmd *WgoCmd) matchFile(name string) bool {
+	normalizedDirPath := filepath.ToSlash(filepath.Dir(name))
 	for _, root := range wgoCmd.Roots {
-		root += string(os.PathSeparator)
-		if strings.HasPrefix(filePath, root) {
-			normalizedFilePath = filepath.ToSlash(strings.TrimPrefix(filePath, root))
-			normalizedDirPath = filepath.ToSlash(filepath.Dir(normalizedFilePath))
+		if strings.HasPrefix(name, root+"/") {
+			name = strings.TrimPrefix(name, root+"/")
+			normalizedDirPath = filepath.ToSlash(filepath.Dir(name))
 			break
 		}
 	}
 	for _, r := range wgoCmd.ExcludeDirRegexps {
 		if r.MatchString(normalizedDirPath) {
-			wgoCmd.Logger.Println("(skip)", op, normalizedFilePath)
 			return false
 		}
 	}
@@ -667,40 +668,36 @@ func (wgoCmd *WgoCmd) matchFile(op string, filePath string) bool {
 			}
 		}
 		if !matched {
-			wgoCmd.Logger.Println("(skip)", op, normalizedFilePath)
 			return false
 		}
 	}
 	for _, r := range wgoCmd.ExcludeFileRegexps {
-		if r.MatchString(normalizedFilePath) {
-			wgoCmd.Logger.Println("(skip)", op, normalizedFilePath)
+		if r.MatchString(name) {
 			return false
 		}
 	}
 	for _, r := range wgoCmd.FileRegexps {
-		if r.MatchString(normalizedFilePath) {
-			wgoCmd.Logger.Println(op, normalizedFilePath)
+		if r.MatchString(name) {
 			return true
 		}
 	}
 	if wgoCmd.isRun {
-		if strings.HasSuffix(filePath, ".go") && !strings.HasSuffix(filePath, "_test.go") {
-			wgoCmd.Logger.Println(op, normalizedFilePath)
+		if strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
 			return true
 		}
-		wgoCmd.Logger.Println("(skip)", op, normalizedFilePath)
 		return false
 	}
 	if len(wgoCmd.FileRegexps) == 0 {
-		wgoCmd.Logger.Println(op, normalizedFilePath)
 		return true
 	}
-	wgoCmd.Logger.Println("(skip)", op, normalizedFilePath)
 	return false
 }
 
-func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents chan<- fsnotify.Event) {
+func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events chan<- fsnotify.Event) {
+	// wg tracks the number of active goroutines.
 	var wg sync.WaitGroup
+	// cancelFuncs stores the cancel() functions that stop a goroutine mapped
+	// to a childName.
 	cancelFuncs := make(map[string]func())
 	dirEntries, err := os.ReadDir(name)
 	if err != nil {
@@ -711,10 +708,13 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 		childName := filepath.Join(name, dirEntry.Name())
 		isDir := dirEntry.IsDir()
 		if isDir {
-			if !wgoCmd.matchDir("", childName) {
+			if !wgoCmd.matchDir(childName) {
 				continue
 			}
 		} else {
+			if !wgoCmd.matchFile(childName) {
+				continue
+			}
 		}
 		ctx, cancel := context.WithCancel(ctx)
 		cancelFuncs[childName] = cancel
@@ -722,16 +722,18 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 			wg.Add(1)
 			go func() {
 				wg.Done()
-				wgoCmd.pollDirectory(ctx, childName, fileEvents)
+				wgoCmd.Logger.Println("WATCH", childName)
+				wgoCmd.pollDirectory(ctx, childName, events)
 			}()
 		} else {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				wgoCmd.pollFile(ctx, childName, fileEvents)
+				wgoCmd.pollFile(ctx, childName, events)
 			}()
 		}
 	}
+	// Before exiting the function, cancel all spawned goroutines.
 	defer func() {
 		for _, cancel := range cancelFuncs {
 			cancel()
@@ -760,6 +762,16 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 		}
 		for _, dirEntry := range dirEntries {
 			childName := filepath.Join(name, dirEntry.Name())
+			isDir := dirEntry.IsDir()
+			if isDir {
+				if !wgoCmd.matchDir(childName) {
+					continue
+				}
+			} else {
+				if !wgoCmd.matchFile(childName) {
+					continue
+				}
+			}
 			seen[childName] = true
 			_, ok := cancelFuncs[childName]
 			if ok {
@@ -767,21 +779,20 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 			}
 			ctx, cancel := context.WithCancel(ctx)
 			cancelFuncs[childName] = cancel
-			if dirEntry.IsDir() {
+			if isDir {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					wgoCmd.pollDirectory(ctx, childName, fileEvents)
+					wgoCmd.Logger.Println("WATCH", childName)
+					events <- fsnotify.Event{Name: childName, Op: fsnotify.Create}
+					wgoCmd.pollDirectory(ctx, childName, events)
 				}()
 			} else {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					fileEvents <- fsnotify.Event{
-						Name: childName,
-						Op:   fsnotify.Create,
-					}
-					wgoCmd.pollFile(ctx, childName, fileEvents)
+					events <- fsnotify.Event{Name: childName, Op: fsnotify.Create}
+					wgoCmd.pollFile(ctx, childName, events)
 				}()
 			}
 		}
@@ -795,7 +806,7 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, fileEvents
 	}
 }
 
-func (wgoCmd *WgoCmd) pollFile(ctx context.Context, name string, fileEvents chan<- fsnotify.Event) {
+func (wgoCmd *WgoCmd) pollFile(ctx context.Context, name string, events chan<- fsnotify.Event) {
 	fileInfo, err := os.Stat(name)
 	if err != nil {
 		wgoCmd.Logger.Println(err)
@@ -803,7 +814,6 @@ func (wgoCmd *WgoCmd) pollFile(ctx context.Context, name string, fileEvents chan
 	}
 	oldModTime := fileInfo.ModTime()
 	oldSize := fileInfo.Size()
-	_, _ = oldModTime, oldSize
 	for {
 		time.Sleep(wgoCmd.PollDuration)
 		err := ctx.Err()
@@ -818,10 +828,9 @@ func (wgoCmd *WgoCmd) pollFile(ctx context.Context, name string, fileEvents chan
 		newModTime := fileInfo.ModTime()
 		newSize := fileInfo.Size()
 		if newModTime != oldModTime || newSize != oldSize {
-			fileEvents <- fsnotify.Event{
-				Name: name,
-				Op:   fsnotify.Create,
-			}
+			events <- fsnotify.Event{Name: name, Op: fsnotify.Write}
 		}
+		oldModTime = newModTime
+		oldSize = newSize
 	}
 }
