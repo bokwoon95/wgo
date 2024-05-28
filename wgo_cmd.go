@@ -387,7 +387,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	timer.Stop()
 
 	for {
-	CMD_CHAIN:
+	COMMAND_CHAIN:
 		for i, args := range wgoCmd.Commands {
 			// Step 1: Prepare the command.
 			//
@@ -480,7 +480,7 @@ func (wgoCmd *WgoCmd) Run() error {
 					if err != nil {
 						break
 					}
-					continue CMD_CHAIN
+					continue COMMAND_CHAIN
 				case err := <-watcher.Errors:
 					wgoCmd.Logger.Println(err)
 				case event := <-watcher.Events:
@@ -518,7 +518,7 @@ func (wgoCmd *WgoCmd) Run() error {
 				case <-timer.C: // Timer expired, reload commands.
 					stop(cmd)
 					<-waitDone
-					break CMD_CHAIN
+					break COMMAND_CHAIN
 				}
 			}
 		}
