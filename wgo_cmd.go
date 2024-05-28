@@ -489,7 +489,7 @@ func (wgoCmd *WgoCmd) Run() error {
 					// been deleted, we cannot determine if it is a file or
 					// directory. Therefore, we cannot determine which regex
 					// matching rules should apply (-file/-xfile for files,
-					// -dir/-xdir for directories). So we ignore deleted files.
+					// -dir/-xdir for directories). So, we ignore deleted files.
 					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) {
 						continue
 					}
