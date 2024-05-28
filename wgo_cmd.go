@@ -820,7 +820,7 @@ func (wgoCmd *WgoCmd) pollFile(ctx context.Context, name string, events chan<- f
 			if !errors.Is(err, fs.ErrNotExist) {
 				wgoCmd.Logger.Println(err)
 			}
-			return
+			continue
 		}
 		newModTime := fileInfo.ModTime()
 		newSize := fileInfo.Size()
