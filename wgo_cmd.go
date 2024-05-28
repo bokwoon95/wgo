@@ -693,7 +693,7 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 	// cancelFuncs maps the childNames to their goroutine-cancelling functions.
 	cancelFuncs := make(map[string]func())
 
-	// Defer cleanup (cancel all active goroutines).
+	// Defer cleanup.
 	defer func() {
 		for _, cancel := range cancelFuncs {
 			cancel()
