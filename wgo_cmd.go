@@ -743,9 +743,9 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 		}
 	}
 
-	// seen tracks which items we have already seen (in each loop iteration).
-	// We are declaring it outside the loop instead of inside the loop so that
-	// we can reuse the map.
+	// seen tracks which childNames we have already seen. We are declaring it
+	// outside the loop instead of inside the loop so that we can reuse the
+	// map.
 	seen := make(map[string]bool)
 
 	for {
