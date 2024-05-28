@@ -375,9 +375,8 @@ func (wgoCmd *WgoCmd) Run() error {
 	}
 	defer watcher.Close()
 	for _, root := range wgoCmd.Roots {
-		if wgoCmd.PollDuration == 0 {
-			wgoCmd.addDirsRecursively(watcher, root)
-		} else {
+		wgoCmd.addDirsRecursively(watcher, root)
+		if wgoCmd.PollDuration > 0 {
 			wgoCmd.pollDirectory(wgoCmd.ctx, root, watcher.Events)
 		}
 	}
@@ -499,19 +498,19 @@ func (wgoCmd *WgoCmd) Run() error {
 					}
 					name := filepath.ToSlash(event.Name)
 					if fileInfo.IsDir() {
-						if wgoCmd.PollDuration == 0 && event.Has(fsnotify.Create) {
+						if event.Has(fsnotify.Create) {
 							wgoCmd.addDirsRecursively(watcher, event.Name)
 						}
 						if wgoCmd.matchDir(name) {
 							wgoCmd.Logger.Println(event.Op.String(), name)
-							timer.Reset(wgoCmd.DebounceDuration)
+							timer.Reset(wgoCmd.DebounceDuration) // Start/reset the timer.
 						} else {
 							wgoCmd.Logger.Println("(skip)", event.Op.String(), name)
 						}
 					} else {
 						if wgoCmd.matchFile(event.Name) {
 							wgoCmd.Logger.Println(event.Op.String(), name)
-							timer.Reset(wgoCmd.DebounceDuration)
+							timer.Reset(wgoCmd.DebounceDuration) // Start/reset the timer.
 						} else {
 							wgoCmd.Logger.Println("(skip)", event.Op.String(), name)
 						}
@@ -725,7 +724,6 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 			wg.Add(1)
 			go func() {
 				wg.Done()
-				wgoCmd.Logger.Println("WATCH", childName)
 				wgoCmd.pollDirectory(ctx, childName, events)
 			}()
 		} else {
@@ -779,7 +777,6 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					wgoCmd.Logger.Println("WATCH", childName)
 					events <- fsnotify.Event{Name: childName, Op: fsnotify.Create}
 					wgoCmd.pollDirectory(ctx, childName, events)
 				}()
