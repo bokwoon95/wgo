@@ -122,9 +122,9 @@ type WgoCmd struct {
 	// means no polling.
 	PollDuration time.Duration
 
-	ctx     context.Context
-	isRun   bool   // Whether the command is `wgo run`.
-	binPath string // Where the built go binary lives.
+	ctx            context.Context
+	isRun          bool   // Whether the command is `wgo run`.
+	executablePath string // The output path of the `go build` executable.
 }
 
 // WgoCommands instantiates a slices of WgoCmds. Each "::" separator followed
@@ -291,21 +291,21 @@ Flags:
 		if len(flagArgs) == 0 {
 			return nil, fmt.Errorf("wgo run: package not provided")
 		}
-		// Determine the temp directory to put the binary in.
+		// Determine the temp directory to put the executable in.
 		// https://github.com/golang/go/issues/8451#issuecomment-341475329
 		tmpDir := os.Getenv("GOTMPDIR")
 		if tmpDir == "" {
 			tmpDir = os.TempDir()
 		}
-		pkgName := flagArgs[0]
-		if pkgName == "." {
-			pkgName = filepath.Base(cwd)
+		executableName := flagArgs[0]
+		if executableName == "." {
+			executableName = filepath.Base(cwd)
 		}
-		wgoCmd.binPath = filepath.Join(tmpDir, "wgo-"+time.Now().Format("2006-01-02-150405-999"), pkgName)
+		wgoCmd.executablePath = filepath.Join(tmpDir, "wgo-"+time.Now().Format("2006-01-02-150405-999"), executableName)
 		if runtime.GOOS == "windows" {
-			wgoCmd.binPath += ".exe"
+			wgoCmd.executablePath += ".exe"
 		}
-		buildArgs := []string{"go", "build", "-o", wgoCmd.binPath}
+		buildArgs := []string{"go", "build", "-o", wgoCmd.executablePath}
 		buildArgs = append(buildArgs, strFlagValues...)
 		for i, ok := range boolFlagValues {
 			if ok {
@@ -313,7 +313,7 @@ Flags:
 			}
 		}
 		buildArgs = append(buildArgs, flagArgs[0])
-		runArgs := []string{wgoCmd.binPath}
+		runArgs := []string{wgoCmd.executablePath}
 		wgoCmd.ArgsList = [][]string{buildArgs, runArgs}
 		flagArgs = flagArgs[1:]
 	}
@@ -365,8 +365,8 @@ func (wgoCmd *WgoCmd) Run() error {
 		}
 		wgoCmd.Roots[i] = filepath.ToSlash(root)
 	}
-	if wgoCmd.binPath != "" {
-		defer os.Remove(wgoCmd.binPath)
+	if wgoCmd.executablePath != "" {
+		defer os.Remove(wgoCmd.executablePath)
 	}
 
 	watcher, err := fsnotify.NewWatcher()

@@ -190,7 +190,7 @@ func TestWgoCmd_match(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := wgoCmd.matchFile("", path)
+			got := wgoCmd.matchFile(path)
 			if !got && tt.want {
 				t.Errorf("%v failed to match %q", tt.args, tt.path)
 			} else if got && !tt.want {
@@ -342,7 +342,7 @@ func TestWgoCommands(t *testing.T) {
 			},
 			DebounceDuration: 300 * time.Millisecond,
 			isRun:    true,
-			binPath:  "out",
+			executablePath:  "out",
 		}, {
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.css`)},
@@ -375,7 +375,7 @@ func TestWgoCommands(t *testing.T) {
 			},
 			DebounceDuration: 300 * time.Millisecond,
 			isRun:    true,
-			binPath:  "out",
+			executablePath:  "out",
 		}},
 	}, {
 		description: "wgo flags",
@@ -434,11 +434,11 @@ func TestWgoCommands(t *testing.T) {
 					}
 				}
 			}
-			// This is ugly, but because the binPath is randomly generated we
+			// This is ugly, but because the executablePath is randomly generated we
 			// have to manually reach into the argslist and overwrite it with a
 			// well-known string so that we can compare the commands properly.
 			if tt.description == "parallel commands" || tt.description == "build flags" {
-				gotCmds[0].binPath = "out"
+				gotCmds[0].executablePath = "out"
 				gotCmds[0].ArgsList[0][3] = "out"
 				gotCmds[0].ArgsList[1][0] = "out"
 			}
@@ -540,15 +540,15 @@ func TestWgoCmd_Run(t *testing.T) {
 
 	t.Run("timeout off", func(t *testing.T) {
 		t.Parallel()
-		binPath := "./testdata/hello_world/timeout_off"
+		executablePath := "./testdata/hello_world/timeout_off"
 		if runtime.GOOS == "windows" {
-			binPath += ".exe"
+			executablePath += ".exe"
 		}
-		os.RemoveAll(binPath)
-		defer os.RemoveAll(binPath)
+		os.RemoveAll(executablePath)
+		defer os.RemoveAll(executablePath)
 		wgoCmd, err := WgoCommand(context.Background(), []string{
-			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", binPath, "./testdata/hello_world",
-			"::", binPath,
+			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", executablePath, "./testdata/hello_world",
+			"::", executablePath,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -570,15 +570,15 @@ func TestWgoCmd_Run(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
-		binPath := "./testdata/hello_world/timeout_on"
+		executablePath := "./testdata/hello_world/timeout_on"
 		if runtime.GOOS == "windows" {
-			binPath += ".exe"
+			executablePath += ".exe"
 		}
-		os.RemoveAll(binPath)
-		defer os.RemoveAll(binPath)
+		os.RemoveAll(executablePath)
+		defer os.RemoveAll(executablePath)
 		wgoCmd, err := WgoCommand(ctx, []string{
-			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", binPath, "./testdata/hello_world",
-			"::", binPath,
+			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", executablePath, "./testdata/hello_world",
+			"::", executablePath,
 		})
 		if err != nil {
 			t.Fatal(err)

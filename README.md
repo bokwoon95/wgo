@@ -8,7 +8,7 @@
 
 ## Installation
 
-You can [download](#download-the-latest-release) binaries from [the release page](https://github.com/bokwoon95/wgo/releases/latest), or use the Go command:
+You can [download](#download-the-latest-release) releases from [the release page](https://github.com/bokwoon95/wgo/releases/latest), or use the Go command:
 
 ```shell
 go install github.com/bokwoon95/wgo@latest
@@ -166,7 +166,7 @@ Commands can be chained using the `::` separator. Subsequent commands are execut
 # Run `make build` followed by `make run` whenever a file changes.
 $ wgo make build :: make run
 
-# Run `go build` followed by the built binary whenever a .go file changes.
+# Run `go build` followed by the built executable whenever a .go file changes.
 $ wgo -file .go go build -o main main.go :: ./main
 
 # Clear the screen with `clear` before running `go test`.
