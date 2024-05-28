@@ -697,8 +697,8 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 	// wg tracks the number of active goroutines.
 	var wg sync.WaitGroup
 
-	// cancelFuncs stores the cancel() functions that stop a goroutine mapped
-	// to a childName.
+	// cancelFuncs maps the childNames to the cancel() functions that stop the
+	// goroutine monitoring the childName.
 	cancelFuncs := make(map[string]func())
 
 	dirEntries, err := os.ReadDir(name)
