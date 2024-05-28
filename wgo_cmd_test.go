@@ -318,7 +318,7 @@ func TestWgoCommands(t *testing.T) {
 		wantCmds: []*WgoCmd{{
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.go`)},
-			ArgsList: [][]string{
+			CmdChain: [][]string{
 				{"clear"},
 				{"echo", "building..."},
 				{"go", "build", "-o", "hello_world", "hello_world.go"},
@@ -336,7 +336,7 @@ func TestWgoCommands(t *testing.T) {
 		},
 		wantCmds: []*WgoCmd{{
 			Roots: []string{"."},
-			ArgsList: [][]string{
+			CmdChain: [][]string{
 				{"go", "build", "-o", "out", "-tags", "fts5", "main.go"},
 				{"out", "arg1", "arg2"},
 			},
@@ -347,7 +347,7 @@ func TestWgoCommands(t *testing.T) {
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.css`)},
 			DirRegexps:  []*regexp.Regexp{regexp.MustCompile(`assets`)},
-			ArgsList: [][]string{
+			CmdChain: [][]string{
 				{"sass", "assets/styles.scss", "assets/styles.css"},
 			},
 			DebounceDuration: 300 * time.Millisecond,
@@ -355,7 +355,7 @@ func TestWgoCommands(t *testing.T) {
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.js`)},
 			DirRegexps:  []*regexp.Regexp{regexp.MustCompile(`assets`)},
-			ArgsList: [][]string{
+			CmdChain: [][]string{
 				{"tsc", "assets/*.ts", "--outfile", "assets/index.js"},
 			},
 			DebounceDuration: 300 * time.Millisecond,
@@ -369,7 +369,7 @@ func TestWgoCommands(t *testing.T) {
 		},
 		wantCmds: []*WgoCmd{{
 			Roots: []string{"."},
-			ArgsList: [][]string{
+			CmdChain: [][]string{
 				{"go", "build", "-o", "out", "-p", "5", "-a", "-n", "-race", "-msan", "-asan", "-work", "-x", "-buildvcs", "-linkshared", "-modcacherw", "-trimpath", "."},
 				{"out", "arg1", "arg2"},
 			},
@@ -385,7 +385,7 @@ func TestWgoCommands(t *testing.T) {
 		wantCmds: []*WgoCmd{{
 			Roots:       []string{".", "/secrets"},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`.`)},
-			ArgsList: [][]string{
+			CmdChain: [][]string{
 				{"echo", "hello"},
 			},
 			DebounceDuration: 300 * time.Millisecond,
@@ -398,7 +398,7 @@ func TestWgoCommands(t *testing.T) {
 		wantCmds: []*WgoCmd{{
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`.`)},
-			ArgsList: [][]string{
+			CmdChain: [][]string{
 				{"echo", "::", ":::", "::::"},
 			},
 			DebounceDuration: 300 * time.Millisecond,
@@ -410,7 +410,7 @@ func TestWgoCommands(t *testing.T) {
 		},
 		wantCmds: []*WgoCmd{{
 			Roots: []string{"."},
-			ArgsList: [][]string{
+			CmdChain: [][]string{
 				{"echo", "test"},
 			},
 			DebounceDuration: 10 * time.Millisecond,
@@ -439,8 +439,8 @@ func TestWgoCommands(t *testing.T) {
 			// well-known string so that we can compare the commands properly.
 			if tt.description == "parallel commands" || tt.description == "build flags" {
 				gotCmds[0].executablePath = "out"
-				gotCmds[0].ArgsList[0][3] = "out"
-				gotCmds[0].ArgsList[1][0] = "out"
+				gotCmds[0].CmdChain[0][3] = "out"
+				gotCmds[0].CmdChain[1][0] = "out"
 			}
 			opts := []cmp.Option{
 				// Comparing loggers always fails, ignore it.

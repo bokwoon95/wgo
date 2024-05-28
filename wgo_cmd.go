@@ -87,10 +87,10 @@ type WgoCmd struct {
 	// If provided, Logger is used to log file events.
 	Logger *log.Logger
 
-	// ArgsList is the list of args slices. Each slice corresponds to a single
-	// command to execute and is of this form [cmd arg1 arg2 arg3...]. A slice
-	// of these commands represent the chain of commands to be executed.
-	ArgsList [][]string
+	// Commands stores a slice of command invocations. Each nested []string
+	// corresponds to a single command invocation and is of this form [cmd arg1
+	// arg2 arg3...]. This represents the chain of commands to be executed.
+	Commands [][]string
 
 	// Env is sets the environment variables for the commands. Each entry is of
 	// the form "KEY=VALUE".
@@ -284,9 +284,9 @@ Flags:
 	}
 
 	// If the command is `wgo run`, prepend a `go build` command to the
-	// ArgsList.
+	// CommandChain.
 	flagArgs := flagset.Args()
-	wgoCmd.ArgsList = append(wgoCmd.ArgsList, []string{})
+	wgoCmd.Commands = append(wgoCmd.Commands, []string{})
 	if wgoCmd.isRun {
 		if len(flagArgs) == 0 {
 			return nil, fmt.Errorf("wgo run: package not provided")
@@ -305,23 +305,23 @@ Flags:
 		if runtime.GOOS == "windows" {
 			wgoCmd.executablePath += ".exe"
 		}
-		buildArgs := []string{"go", "build", "-o", wgoCmd.executablePath}
-		buildArgs = append(buildArgs, strFlagValues...)
+		buildCommand := []string{"go", "build", "-o", wgoCmd.executablePath}
+		buildCommand = append(buildCommand, strFlagValues...)
 		for i, ok := range boolFlagValues {
 			if ok {
-				buildArgs = append(buildArgs, "-"+boolFlagNames[i])
+				buildCommand = append(buildCommand, "-"+boolFlagNames[i])
 			}
 		}
-		buildArgs = append(buildArgs, flagArgs[0])
-		runArgs := []string{wgoCmd.executablePath}
-		wgoCmd.ArgsList = [][]string{buildArgs, runArgs}
+		buildCommand = append(buildCommand, flagArgs[0])
+		runCommand := []string{wgoCmd.executablePath}
+		wgoCmd.Commands = [][]string{buildCommand, runCommand}
 		flagArgs = flagArgs[1:]
 	}
 
 	for _, arg := range flagArgs {
 		// If arg is "::", start a new command.
 		if arg == "::" {
-			wgoCmd.ArgsList = append(wgoCmd.ArgsList, []string{})
+			wgoCmd.Commands = append(wgoCmd.Commands, []string{})
 			continue
 		}
 
@@ -338,8 +338,8 @@ Flags:
 		}
 
 		// Append arg to the last command in the chain.
-		n := len(wgoCmd.ArgsList) - 1
-		wgoCmd.ArgsList[n] = append(wgoCmd.ArgsList[n], arg)
+		n := len(wgoCmd.Commands) - 1
+		wgoCmd.Commands[n] = append(wgoCmd.Commands[n], arg)
 	}
 	return &wgoCmd, nil
 }
@@ -388,7 +388,7 @@ func (wgoCmd *WgoCmd) Run() error {
 
 	for {
 	CMD_CHAIN:
-		for i, args := range wgoCmd.ArgsList {
+		for i, args := range wgoCmd.Commands {
 			// Step 1: Prepare the command.
 			//
 			// We are not using exec.CommandContext() because it uses
@@ -437,7 +437,7 @@ func (wgoCmd *WgoCmd) Run() error {
 			// work interactively (the tests will pass, but somehow it won't
 			// actually work if you run it in person. I don't know why).
 			var wg sync.WaitGroup
-			if wgoCmd.EnableStdin && i == len(wgoCmd.ArgsList)-1 {
+			if wgoCmd.EnableStdin && i == len(wgoCmd.Commands)-1 {
 				stdinPipe, err := cmd.StdinPipe()
 				if err != nil {
 					return err
@@ -471,7 +471,7 @@ func (wgoCmd *WgoCmd) Run() error {
 					<-waitDone
 					return nil
 				case err := <-cmdResult:
-					if i == len(wgoCmd.ArgsList)-1 {
+					if i == len(wgoCmd.Commands)-1 {
 						if wgoCmd.Exit {
 							return err
 						}
