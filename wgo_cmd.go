@@ -697,9 +697,16 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 	// wg tracks the number of active goroutines.
 	var wg sync.WaitGroup
 
-	// cancelFuncs maps the childNames to the cancel() functions that stop the
-	// goroutine monitoring the childName.
+	// cancelFuncs maps the childNames to their goroutine-cancelling functions.
 	cancelFuncs := make(map[string]func())
+
+	// Defer cleanup (cancel all active goroutines).
+	defer func() {
+		for _, cancel := range cancelFuncs {
+			cancel()
+		}
+		wg.Wait()
+	}()
 
 	dirEntries, err := os.ReadDir(name)
 	if err != nil {
@@ -735,13 +742,6 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 			}()
 		}
 	}
-	// Before exiting the function, cancel all spawned goroutines.
-	defer func() {
-		for _, cancel := range cancelFuncs {
-			cancel()
-		}
-		wg.Wait()
-	}()
 
 	// seen tracks which items we have already seen (in each loop iteration).
 	// We are declaring it outside the loop instead of inside the loop so that
