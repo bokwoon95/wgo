@@ -696,9 +696,11 @@ func (wgoCmd *WgoCmd) matchFile(name string) bool {
 func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events chan<- fsnotify.Event) {
 	// wg tracks the number of active goroutines.
 	var wg sync.WaitGroup
+
 	// cancelFuncs stores the cancel() functions that stop a goroutine mapped
 	// to a childName.
 	cancelFuncs := make(map[string]func())
+
 	dirEntries, err := os.ReadDir(name)
 	if err != nil {
 		wgoCmd.Logger.Println(err)
