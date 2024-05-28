@@ -741,8 +741,10 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 		}
 		dirEntries, err := os.ReadDir(name)
 		if err != nil {
-			wgoCmd.Logger.Println(err)
-			return
+			if !errors.Is(err, fs.ErrNotExist) {
+				wgoCmd.Logger.Println(err)
+			}
+			continue
 		}
 		for _, dirEntry := range dirEntries {
 			childName := filepath.Join(name, dirEntry.Name())
