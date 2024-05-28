@@ -749,6 +749,9 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 	seen := make(map[string]bool)
 
 	for {
+		for childName := range seen {
+			delete(seen, childName)
+		}
 		time.Sleep(wgoCmd.PollDuration)
 		err := ctx.Err()
 		if err != nil {
@@ -758,9 +761,6 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 		if err != nil {
 			wgoCmd.Logger.Println(err)
 			return
-		}
-		for childName := range seen {
-			delete(seen, childName)
 		}
 		for _, dirEntry := range dirEntries {
 			childName := filepath.Join(name, dirEntry.Name())
