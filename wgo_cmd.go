@@ -708,19 +708,9 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 	}
 	for _, dirEntry := range dirEntries {
 		childName := filepath.Join(name, dirEntry.Name())
-		isDir := dirEntry.IsDir()
-		if isDir {
-			if !wgoCmd.matchDir(childName) {
-				continue
-			}
-		} else {
-			if !wgoCmd.matchFile(childName) {
-				continue
-			}
-		}
 		ctx, cancel := context.WithCancel(ctx)
 		cancelFuncs[childName] = cancel
-		if isDir {
+		if dirEntry.IsDir() {
 			wg.Add(1)
 			go func() {
 				wg.Done()
@@ -756,16 +746,6 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 		}
 		for _, dirEntry := range dirEntries {
 			childName := filepath.Join(name, dirEntry.Name())
-			isDir := dirEntry.IsDir()
-			if isDir {
-				if !wgoCmd.matchDir(childName) {
-					continue
-				}
-			} else {
-				if !wgoCmd.matchFile(childName) {
-					continue
-				}
-			}
 			seen[childName] = true
 			_, ok := cancelFuncs[childName]
 			if ok {
@@ -773,7 +753,7 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, name string, events cha
 			}
 			ctx, cancel := context.WithCancel(ctx)
 			cancelFuncs[childName] = cancel
-			if isDir {
+			if dirEntry.IsDir() {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
