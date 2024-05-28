@@ -297,11 +297,11 @@ Flags:
 		if tmpDir == "" {
 			tmpDir = os.TempDir()
 		}
-		pkg := flagArgs[0]
-		if pkg == "." {
-			pkg = filepath.Base(cwd)
+		pkgName := flagArgs[0]
+		if pkgName == "." {
+			pkgName = filepath.Base(cwd)
 		}
-		wgoCmd.binPath = filepath.Join(tmpDir, "wgo-"+time.Now().Format("2006-01-02-150405-999"), pkg)
+		wgoCmd.binPath = filepath.Join(tmpDir, "wgo-"+time.Now().Format("2006-01-02-150405-999"), pkgName)
 		if runtime.GOOS == "windows" {
 			wgoCmd.binPath += ".exe"
 		}
