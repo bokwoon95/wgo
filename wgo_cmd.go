@@ -620,6 +620,7 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 // matchFile can log the match result instead of relying on matchDir or
 // matchFile to do so.
 
+// matchFile checks if a given dir path should trigger a reload.
 func (wgoCmd *WgoCmd) matchDir(name string) bool {
 	for _, root := range wgoCmd.Roots {
 		if strings.HasPrefix(name, root+"/") {
@@ -637,32 +638,31 @@ func (wgoCmd *WgoCmd) matchDir(name string) bool {
 			return true
 		}
 	}
-	if len(wgoCmd.FileRegexps) == 0 {
+	if len(wgoCmd.DirRegexps) == 0 {
 		return true
 	}
 	return false
 }
 
-// matchFile checks if a given file path should trigger a reload. The op string is
-// provided only for logging purposes, it is not actually used.
+// matchFile checks if a given file path should trigger a reload.
 func (wgoCmd *WgoCmd) matchFile(name string) bool {
-	normalizedDirPath := filepath.ToSlash(filepath.Dir(name))
+	dir := filepath.ToSlash(filepath.Dir(name))
 	for _, root := range wgoCmd.Roots {
 		if strings.HasPrefix(name, root+"/") {
 			name = strings.TrimPrefix(name, root+"/")
-			normalizedDirPath = filepath.ToSlash(filepath.Dir(name))
+			dir = filepath.ToSlash(filepath.Dir(name))
 			break
 		}
 	}
 	for _, r := range wgoCmd.ExcludeDirRegexps {
-		if r.MatchString(normalizedDirPath) {
+		if r.MatchString(dir) {
 			return false
 		}
 	}
 	if len(wgoCmd.DirRegexps) > 0 {
 		matched := false
 		for _, r := range wgoCmd.DirRegexps {
-			if r.MatchString(normalizedDirPath) {
+			if r.MatchString(dir) {
 				matched = true
 				break
 			}
