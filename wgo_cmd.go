@@ -89,7 +89,7 @@ type WgoCmd struct {
 
 	// Commands stores a slice of command invocations. Each nested []string
 	// corresponds to a single command invocation and is of this form [cmd arg1
-	// arg2 arg3...]. This represents the chain of commands to be executed.
+	// arg2 arg3...]. This represents a chain of commands to be executed.
 	Commands [][]string
 
 	// Env is sets the environment variables for the commands. Each entry is of
