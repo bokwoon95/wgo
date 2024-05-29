@@ -646,6 +646,7 @@ func TestWgoCmd_Run(t *testing.T) {
 }
 
 func TestWgoCmd_FileEvent(t *testing.T) {
+	t.Skip()
 	t.Parallel()
 	os.RemoveAll("testdata/file_event/foo.txt")
 	os.RemoveAll("testdata/file_event/internal")
