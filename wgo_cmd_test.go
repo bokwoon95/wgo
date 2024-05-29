@@ -723,7 +723,7 @@ internal/baz/baz.txt: baz
 main.go
 run.bat`
 	if diff := Diff(got, want); diff != "" {
-		t.Error(diff)
+		t.Error(got)
 	}
 }
 
