@@ -179,11 +179,12 @@ func TestWgoCmd_match(t *testing.T) {
 			}
 			if tt.roots != nil {
 				wgoCmd.Roots = make([]string, len(tt.roots))
-				for i := range tt.roots {
-					wgoCmd.Roots[i], err = filepath.Abs(tt.roots[i])
+				for i, root := range tt.roots {
+					root, err := filepath.Abs(root)
 					if err != nil {
 						t.Fatal(err)
 					}
+					wgoCmd.Roots[i] = root
 				}
 			}
 			path, err := filepath.Abs(tt.path)
@@ -209,53 +210,66 @@ func TestWgoCmd_addDirsRecursively(t *testing.T) {
 		wantWatched []string
 	}
 
-	// NOTE: Don't hardcode absolute paths here, use only relative paths. The
-	// test scaffolding will convert them to absolute paths for you.
+	// abs is the same as filepath.Abs but hides the error
+	abs := func(s string) string {
+		s, err := filepath.Abs(s)
+		if err != nil {
+			panic(err)
+		}
+		return s
+	}
+
 	tests := []TestTable{{
 		description: "-xdir",
-		roots:       []string{"testdata/dir"},
-		dir:         "testdata/dir",
-		args:        []string{"-xdir", "subdir"},
+		roots: []string{
+			abs("testdata/dir"),
+		},
+		dir:  abs("testdata/dir"),
+		args: []string{"-xdir", "subdir"},
 		wantWatched: []string{
-			"testdata/dir",
-			"testdata/dir/foo",
+			abs("testdata/dir"),
+			abs("testdata/dir/foo"),
 		},
 	}, {
 		description: "-xdir with slash",
-		roots:       []string{"testdata/dir"},
-		dir:         "testdata/dir",
-		args:        []string{"-xdir", "/"},
-		wantWatched: []string{
-			"testdata/dir",
+		roots: []string{
+			abs("testdata/dir"),
 		},
+		dir:  abs("testdata/dir"),
+		args: []string{"-xdir", "/"},
+		wantWatched: []string{},
 	}, {
 		description: "-xdir excludes non root dir",
 		args:        []string{"-xdir", "testdata/dir"},
-		dir:         "testdata/dir",
+		dir:         abs("testdata/dir"),
 		wantWatched: []string{},
 	}, {
 		description: "-dir",
-		roots:       []string{"testdata/dir"},
-		dir:         "testdata/dir",
-		args:        []string{"-dir", "foo"},
+		roots: []string{
+			abs("testdata/dir"),
+		},
+		dir:  abs("testdata/dir"),
+		args: []string{"-dir", "foo"},
 		wantWatched: []string{
-			"testdata/dir",
-			"testdata/dir/foo",
-			"testdata/dir/subdir",
-			"testdata/dir/subdir/foo",
+			abs("testdata/dir"),
+			abs("testdata/dir/foo"),
+			abs("testdata/dir/subdir"),
+			abs("testdata/dir/subdir/foo"),
 		},
 	}, {
 		description: "explicitly include node_modules",
-		roots:       []string{"testdata/dir"},
-		dir:         "testdata/dir",
-		args:        []string{"-dir", "node_modules"},
+		roots: []string{
+			abs("testdata/dir"),
+		},
+		dir:  abs("testdata/dir"),
+		args: []string{"-dir", "node_modules"},
 		wantWatched: []string{
-			"testdata/dir",
-			"testdata/dir/foo",
-			"testdata/dir/node_modules",
-			"testdata/dir/node_modules/foo",
-			"testdata/dir/subdir",
-			"testdata/dir/subdir/foo",
+			abs("testdata/dir"),
+			abs("testdata/dir/foo"),
+			abs("testdata/dir/node_modules"),
+			abs("testdata/dir/node_modules/foo"),
+			abs("testdata/dir/subdir"),
+			abs("testdata/dir/subdir/foo"),
 		},
 	}}
 
@@ -267,28 +281,11 @@ func TestWgoCmd_addDirsRecursively(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for i := range tt.roots {
-				root, err := filepath.Abs(tt.roots[i])
-				if err != nil {
-					t.Fatal(err)
-				}
-				wgoCmd.Roots = append(wgoCmd.Roots, root)
-			}
 			watcher, err := fsnotify.NewWatcher()
 			if err != nil {
 				t.Fatal(err)
 			}
-			dir, err := filepath.Abs(tt.dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for i := range tt.wantWatched {
-				tt.wantWatched[i], err = filepath.Abs(tt.wantWatched[i])
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			wgoCmd.addDirsRecursively(watcher, dir)
+			wgoCmd.addDirsRecursively(watcher, tt.dir)
 			gotWatched := watcher.WatchList()
 			sort.Strings(gotWatched)
 			sort.Strings(tt.wantWatched)
@@ -341,8 +338,8 @@ func TestWgoCommands(t *testing.T) {
 				{"out", "arg1", "arg2"},
 			},
 			DebounceDuration: 300 * time.Millisecond,
-			isRun:    true,
-			executablePath:  "out",
+			isRun:            true,
+			executablePath:   "out",
 		}, {
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.css`)},
@@ -374,8 +371,8 @@ func TestWgoCommands(t *testing.T) {
 				{"out", "arg1", "arg2"},
 			},
 			DebounceDuration: 300 * time.Millisecond,
-			isRun:    true,
-			executablePath:  "out",
+			isRun:            true,
+			executablePath:   "out",
 		}},
 	}, {
 		description: "wgo flags",
@@ -427,16 +424,18 @@ func TestWgoCommands(t *testing.T) {
 			}
 			for _, wgoCmd := range tt.wantCmds {
 				wgoCmd.ctx = context.Background()
-				for i := range wgoCmd.Roots {
-					wgoCmd.Roots[i], err = filepath.Abs(wgoCmd.Roots[i])
+				for i, root := range wgoCmd.Roots {
+					root, err := filepath.Abs(root)
 					if err != nil {
 						t.Fatal(err)
 					}
+					wgoCmd.Roots[i] = root
 				}
 			}
-			// This is ugly, but because the executablePath is randomly generated we
-			// have to manually reach into the argslist and overwrite it with a
-			// well-known string so that we can compare the commands properly.
+			// This is ugly, but because the executablePath is randomly
+			// generated we have to manually reach into the commands and
+			// overwrite it with a well-known string so that we can compare the
+			// commands properly.
 			if tt.description == "parallel commands" || tt.description == "build flags" {
 				gotCmds[0].executablePath = "out"
 				gotCmds[0].Commands[0][3] = "out"

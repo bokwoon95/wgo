@@ -11,24 +11,24 @@ import (
 )
 
 var (
-	_, currfile, _, ok = runtime.Caller(0)
+	_, currentFile, _, ok = runtime.Caller(0)
 )
 
 func main() {
 	if !ok {
-		log.Fatal("couldn't get currfile")
+		log.Fatal("couldn't get currentFile")
 	}
-	currdir := filepath.Dir(currfile) + string(filepath.Separator)
+	currentDir := filepath.Dir(currentFile) + string(filepath.Separator)
 	buf := &bytes.Buffer{}
 	buf.WriteString("---")
-	_ = filepath.WalkDir(currdir, func(path string, d fs.DirEntry, err error) error {
-		if path == currdir {
+	_ = filepath.WalkDir(currentDir, func(path string, d fs.DirEntry, err error) error {
+		if path == currentDir {
 			return nil
 		}
 		if d.IsDir() {
 			return nil
 		}
-		buf.WriteString("\n" + filepath.ToSlash(strings.TrimPrefix(path, currdir)))
+		buf.WriteString("\n" + filepath.ToSlash(strings.TrimPrefix(path, currentDir)))
 		if strings.HasSuffix(path, ".txt") {
 			buf.WriteString(":")
 			b, err := os.ReadFile(path)
