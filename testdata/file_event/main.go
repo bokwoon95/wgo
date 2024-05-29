@@ -18,7 +18,7 @@ func main() {
 	if !ok {
 		log.Fatal("couldn't get currentFile")
 	}
-	currentDir := filepath.Dir(currentFile) + string(filepath.Separator)
+	currentDir := filepath.Dir(currentFile) + string(os.PathSeparator)
 	buf := &bytes.Buffer{}
 	buf.WriteString("---")
 	_ = filepath.WalkDir(currentDir, func(path string, d fs.DirEntry, err error) error {

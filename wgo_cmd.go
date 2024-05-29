@@ -582,7 +582,7 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 		}
 		testDir := filepath.ToSlash(path)
 		for _, root := range wgoCmd.Roots {
-			rootPrefix := root + string(filepath.Separator)
+			rootPrefix := root + string(os.PathSeparator)
 			if strings.HasPrefix(path, rootPrefix) {
 				testDir = filepath.ToSlash(strings.TrimPrefix(path, rootPrefix))
 				break
@@ -617,7 +617,7 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 func (wgoCmd *WgoCmd) matchDir(path string) bool {
 	testDir := filepath.ToSlash(path)
 	for _, root := range wgoCmd.Roots {
-		rootPrefix := root + string(filepath.Separator)
+		rootPrefix := root + string(os.PathSeparator)
 		if strings.HasPrefix(path, rootPrefix) {
 			testDir = filepath.ToSlash(strings.TrimPrefix(path, rootPrefix))
 			break
@@ -644,7 +644,7 @@ func (wgoCmd *WgoCmd) matchFile(path string) bool {
 	testFile := filepath.ToSlash(path)
 	testDir := filepath.ToSlash(filepath.Dir(path))
 	for _, root := range wgoCmd.Roots {
-		rootPrefix := root + string(filepath.Separator)
+		rootPrefix := root + string(os.PathSeparator)
 		if strings.HasPrefix(path, rootPrefix) {
 			testFile = filepath.ToSlash(strings.TrimPrefix(path, rootPrefix))
 			testDir = filepath.ToSlash(filepath.Dir(path))
