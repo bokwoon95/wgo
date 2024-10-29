@@ -79,6 +79,7 @@ $ wgo run -tags=fts5 -race -trimpath main.go
 - [-exit](#exit-when-the-last-command-exits) - Exit when the last command exits.
 - [-stdin](#enable-stdin) - Enable stdin for the last command.
 - [-verbose](#log-file-events) - Log file events.
+- [-clear](#clear-terminal-on-restart) - Clear terminal on restart.
 
 ## Including and excluding files
 

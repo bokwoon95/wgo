@@ -121,6 +121,9 @@ type WgoCmd struct {
 	ctx     context.Context
 	isRun   bool   // Whether the command is `wgo run`.
 	binPath string // Where the built go binary lives.
+
+	// Clear terminal on restart.
+	Clear bool
 }
 
 // WgoCommands instantiates a slices of WgoCmds. Each "::" separator followed
@@ -175,6 +178,7 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 	flagset.BoolVar(&verbose, "verbose", false, "Log file events.")
 	flagset.BoolVar(&wgoCmd.Exit, "exit", false, "Exit when the last command exits.")
 	flagset.BoolVar(&wgoCmd.EnableStdin, "stdin", false, "Enable stdin for the last command.")
+	flagset.BoolVar(&wgoCmd.Clear, "clear", false, "Clear terminal on restart.")
 	flagset.StringVar(&debounce, "debounce", "300ms", "How quickly to react to file events. Lower debounce values will react quicker.")
 	flagset.Func("root", "Specify an additional root directory to watch. Can be repeated.", func(value string) error {
 		root, err := filepath.Abs(value)
@@ -479,6 +483,9 @@ func (wgoCmd *WgoCmd) Run() error {
 						}
 						continue
 					}
+					if wgoCmd.Clear {
+						clearScreen()
+					}
 					if wgoCmd.match(event.Op.String(), event.Name) {
 						timer.Reset(wgoCmd.Debounce) // Start the timer.
 					}
@@ -639,4 +646,30 @@ func (wgoCmd *WgoCmd) match(op string, path string) bool {
 	}
 	wgoCmd.Logger.Println("(skip)", op, normalizedFile)
 	return false
+}
+
+func clearScreen() {
+	// https://en.wikipedia.org/wiki/ANSI_escape_code
+	const (
+		// Standard terminal escape sequence. Same as "\x1b" or "\033".
+		TermEsc = string(rune(27))
+
+		// Control Sequence Introducer. Used for other codes.
+		TermEscCsi = TermEsc + `[`
+
+		// Update cursor position to first row, first column.
+		TermEscCup = TermEscCsi + `1;1H`
+
+		// Supposed to clear the screen and the scrollback, aka hard clear. Seems
+		// insufficient on its own, at least in some terminals.
+		TermEscErase3 = TermEscCsi + `3J`
+
+		// Supposed to reset the terminal to initial state, aka super hard clear.
+		// Seems insufficient on its own, at least in some terminals.
+		TermEscReset = TermEsc + `c`
+
+		// Clear screen AND scrollback.
+		TermEscClearHard = TermEscCup + TermEscReset + TermEscErase3
+	)
+	fmt.Print(TermEscClearHard)
 }
