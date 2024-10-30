@@ -190,6 +190,21 @@ $ wgo -file .go go build -o main main.go :: bash -c 'if ./main; then echo "passe
 $ wgo -file .go go build -o main main.go :: pwsh.exe -command './main; if ($LastExitCode -eq 0) { echo "passed" } else { echo "failed" }'
 ```
 
+### Clear terminal on restart
+
+You can chain the `clear` command (or the `cls` command if you're on Windows) so that the terminal is cleared before everything restarts. You will not be able to use the `wgo run` command, instead you'll have to use the `wgo` command as a general-purpose file watcher to rerun `go run main.go` when a .go file changes.
+
+```shell
+# Clears the screen.
+$ clear
+
+# When a .go file changes, clear the screen and run go run main.go.
+$ wgo -file .go clear :: go run main.go
+
+# If you're on Windows:
+$ wgo -file .go cls :: go run main.go
+```
+
 ## Running parallel wgo commands
 
 If a [command separator `::`](#chaining-commands) is followed by `wgo`, a new `wgo` command is started (which runs in parallel).
