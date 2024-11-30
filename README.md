@@ -82,6 +82,7 @@ $ wgo run -tags=fts5 -race -trimpath main.go
 
 ## Advanced Usage
 
+- [Chaining commands](#chaining-commands)
 - [Clear terminal on restart](#clear-terminal-on-restart)
 - [Running parallel wgo commands](#running-parallel-wgo-commands)
 - [Debug Go code using GoLand or VSCode with wgo](#debug-go-code-using-goland-or-vscode-with-wgo)
