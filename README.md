@@ -80,6 +80,12 @@ $ wgo run -tags=fts5 -race -trimpath main.go
 - [-stdin](#enable-stdin) - Enable stdin for the last command.
 - [-verbose](#log-file-events) - Log file events.
 
+## Advanced Usage
+
+- [Clear terminal on restart](#clear-terminal-on-restart)
+- [Running parallel wgo commands](#running-parallel-wgo-commands)
+- [Debug Go code using GoLand or VSCode with wgo](#debug-go-code-using-goland-or-vscode-with-wgo)
+
 ## Including and excluding files
 
 [*back to flags index*](#flags)
@@ -320,6 +326,64 @@ Listening on localhost:8080
 [wgo] WRITE server/main.go
 Listening on localhost:8080
 ```
+
+## Debug Go code using GoLand or VSCode with wgo
+
+You need to ensure the [delve debugger](https://github.com/go-delve/delve) is installed.
+
+```shell
+go install github.com/go-delve/delve/cmd/dlv@latest
+```
+
+### Start the delve debugger on port 2345 using wgo.
+
+```shell
+$ wgo -file .go go build -o my_binary_name . :: sh -c 'while true; do dlv exec my_binary_name --headless --listen :2345 --api-version 2; done'
+
+# If you're on Windows:
+$ wgo -file .go go build -o my_binary_name . :: pwsh.exe -command 'for (;;) { dlv exec my_binary_name --headless --listen :2345 --api-version 2 }'
+```
+
+You should see something like this
+
+```shell
+$ wgo -file .go go build -o my_binary_name . :: sh -c 'while true; do dlv exec my_binary_name --headless --listen :2345 --api-version 2; done'
+API server listening at: [::]:2345
+2024-12-01T01:18:13+08:00 warning layer=rpc Listening for remote connections (connections are not authenticated nor encrypted)
+```
+
+### For GoLand users, add a new "Go Remote" configuration
+
+In the menu bar, Click on Run > Edit Configurations > Add New Configuration > Go Remote. Then fill in these values.
+
+```
+Name: Attach Debugger
+Host: localhost
+Port: 2345
+On disconnect: Stop remote Delve process
+```
+
+Click OK. Now you can add breakpoints and then click Debug using this configuration. [Make sure the Delve debugger server is first started!](#start-the-delve-debugger-on-port-2345-using-wgo)
+
+### For VSCode users, add a new launch.json configuration
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach Debugger",
+      "type": "go",
+      "request": "attach",
+      "mode": "remote",
+      "host": "localhost",
+      "port": 2345
+    }
+  ]
+}
+```
+
+Save the launch.json file. Now you can add breakpoints and Start Debugging using this configuration. [Make sure the Delve debugger server is first started!](#start-the-delve-debugger-on-port-2345-using-wgo)
 
 ## Why should I use this over other file watchers?
 
