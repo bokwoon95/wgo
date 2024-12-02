@@ -390,6 +390,10 @@ Save the launch.json file. Now you can add breakpoints and Start Debugging using
 
 Nothing! File watchers honestly all do the same things, if you find a file watcher that works for you there's no reason to change. Maybe wgo has a [lower bar to entry](#quickstart)? Or maybe you're allergic to unnecessary config files like I am. Or if you want a feature like [chained commands](#chaining-commands) or [parallel commands](#running-parallel-wgo-commands), consider using `wgo`.
 
+## How do I pronounce wgo?
+
+I've been calling it wi-go or wuh-go inside my head.
+
 ## Contributing
 
 See [START\_HERE.md](https://github.com/bokwoon95/wgo/blob/main/START_HERE.md).
