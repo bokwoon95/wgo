@@ -14,6 +14,12 @@ You can [download](#download-the-latest-release) binaries from [the release page
 go install github.com/bokwoon95/wgo@latest
 ```
 
+If you are on macOS, you may install it with [Homebrew](https://brew.sh).
+
+```shell
+brew install wgo
+```
+
 ```text
 Usage:
   wgo [FLAGS] <command> [ARGUMENTS...]
