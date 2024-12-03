@@ -348,7 +348,7 @@ go install github.com/go-delve/delve/cmd/dlv@latest
 $ wgo -file .go go build -o my_binary_name . :: sh -c 'while true; do dlv exec my_binary_name --headless --listen :2345 --api-version 2; done'
 
 # If you're on Windows:
-$ wgo -file .go go build -o my_binary_name . :: pwsh.exe -command 'while (1) { dlv exec my_binary_name --headless --listen :2345 --api-version 2 }'
+$ wgo -file .go go build -o my_binary_name.exe . :: pwsh.exe -command 'while (1) { dlv exec my_binary_name.exe --headless --listen :2345 --api-version 2 }'
 ```
 
 You should see something like this
