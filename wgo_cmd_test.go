@@ -380,7 +380,7 @@ func TestWgoCommands(t *testing.T) {
 	}, {
 		description: "wgo flags",
 		args: []string{
-			"wgo", "-root", "/secrets", "-file", ".", "-verbose", "echo", "hello",
+			"wgo", "-root", "/secrets", "-file", ".", "-verbose", "-postpone", "echo", "hello",
 		},
 		wantCmds: []*WgoCmd{{
 			Roots:       []string{".", "/secrets"},
@@ -389,6 +389,7 @@ func TestWgoCommands(t *testing.T) {
 				{"echo", "hello"},
 			},
 			Debounce: 300 * time.Millisecond,
+			Postpone: true,
 		}},
 	}, {
 		description: "escaped ::",
@@ -640,6 +641,52 @@ func TestWgoCmd_Run(t *testing.T) {
 		}
 		got := strings.TrimSpace(buf.String())
 		want := "Waiting...\nInterrupt received, graceful shutdown."
+		if got != want {
+			t.Errorf("\ngot:  %q\nwant: %q", got, want)
+		}
+	})
+
+	t.Run("postpone off", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		wgoCmd, err := WgoCommand(ctx, []string{
+			"-file", ".none", "echo", "hello",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf := &Buffer{}
+		wgoCmd.Stdout = buf
+		err = wgoCmd.Run()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.TrimSpace(buf.String())
+		want := "hello"
+		if got != want {
+			t.Errorf("\ngot:  %q\nwant: %q", got, want)
+		}
+	})
+
+	t.Run("postpone on", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		wgoCmd, err := WgoCommand(ctx, []string{
+			"-file", ".none", "-postpone", "echo", "hello",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf := &Buffer{}
+		wgoCmd.Stdout = buf
+		err = wgoCmd.Run()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.TrimSpace(buf.String())
+		want := ""
 		if got != want {
 			t.Errorf("\ngot:  %q\nwant: %q", got, want)
 		}

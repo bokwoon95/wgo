@@ -118,6 +118,10 @@ type WgoCmd struct {
 	// Debounce duration for file events.
 	Debounce time.Duration
 
+	// If Postpone is true, WgoCmd will postpone the first execution of the
+	// command(s) until a file is modified.
+	Postpone bool
+
 	ctx     context.Context
 	isRun   bool   // Whether the command is `wgo run`.
 	binPath string // Where the built go binary lives.
@@ -176,6 +180,7 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 	flagset.BoolVar(&wgoCmd.Exit, "exit", false, "Exit when the last command exits.")
 	flagset.BoolVar(&wgoCmd.EnableStdin, "stdin", false, "Enable stdin for the last command.")
 	flagset.StringVar(&debounce, "debounce", "300ms", "How quickly to react to file events. Lower debounce values will react quicker.")
+	flagset.BoolVar(&wgoCmd.Postpone, "postpone", false, "Postpone the first execution of the command until a file is modified.")
 	flagset.Func("root", "Specify an additional root directory to watch. Can be repeated.", func(value string) error {
 		root, err := filepath.Abs(value)
 		if err != nil {
@@ -368,9 +373,36 @@ func (wgoCmd *WgoCmd) Run() error {
 	timer := time.NewTimer(0)
 	timer.Stop()
 
-	for {
+	for restartCount := 0; ; restartCount++ {
 	CMD_CHAIN:
 		for i, args := range wgoCmd.ArgsList {
+			if restartCount == 0 && wgoCmd.Postpone {
+				for {
+					select {
+					case <-wgoCmd.ctx.Done():
+						return nil
+					case event := <-watcher.Events:
+						if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) {
+							continue
+						}
+						fileinfo, err := os.Stat(event.Name)
+						if err != nil {
+							continue
+						}
+						if fileinfo.IsDir() {
+							if event.Has(fsnotify.Create) {
+								wgoCmd.addDirsRecursively(watcher, event.Name)
+							}
+							continue
+						}
+						if wgoCmd.match(event.Op.String(), event.Name) {
+							timer.Reset(wgoCmd.Debounce)
+						}
+					case <-timer.C:
+						break CMD_CHAIN
+					}
+				}
+			}
 			// Step 1: Prepare the command.
 			//
 			// We are not using exec.CommandContext() because it uses

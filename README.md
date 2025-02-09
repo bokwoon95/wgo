@@ -85,6 +85,8 @@ $ wgo run -tags=fts5 -race -trimpath main.go
 - [-exit](#exit-when-the-last-command-exits) - Exit when the last command exits.
 - [-stdin](#enable-stdin) - Enable stdin for the last command.
 - [-verbose](#log-file-events) - Log file events.
+- [-debounce](#debounce-duration) - How quickly to react to file events. Lower debounce values will react quicker.
+- [-postpone](#postpone-the-first-execution-of-the-command-until-a-file-is-modified) - Postpone the first execution of the command until a file is modified.
 
 ## Advanced Usage
 
@@ -332,6 +334,30 @@ Listening on localhost:8080
 [wgo] CREATE server/main.go
 [wgo] WRITE server/main.go
 Listening on localhost:8080
+```
+
+## Debounce duration
+
+File events are debounced to prevent a command from repeatedly restarting when a string of file events occur in rapid succession. The default debounce duration is 300ms. Change the duration with the -postpone flag. Lower values will react quicker.
+
+```shell
+# Wait 10 milliseconds before restarting.
+$ wgo run -debounce 10ms main.go
+
+# Wait 1 second before restarting.
+$ wgo -debounce 1s go build -o out main.go :: ./out
+```
+
+## Postpone the first execution of the command until a file is modified
+
+By default, wgo runs the command immediately. If you wish to postpone running the command until a file is modified, use the -postpone flag.
+
+```shell
+# Prints hello immediately, and whenever file is modified.
+$ wgo echo hello
+
+# Prints hello only when a file is modified.
+$ wgo -postpone echo hello
 ```
 
 ## Debug Go code using GoLand or VSCode with wgo
