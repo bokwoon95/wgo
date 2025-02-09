@@ -338,6 +338,8 @@ Listening on localhost:8080
 
 ## Debounce duration
 
+[*back to flags index*](#flags)
+
 File events are debounced to prevent a command from repeatedly restarting when a string of file events occur in rapid succession. The default debounce duration is 300ms. Change the duration with the -postpone flag. Lower values will react quicker.
 
 ```shell
@@ -349,6 +351,8 @@ $ wgo -debounce 1s go build -o out main.go :: ./out
 ```
 
 ## Postpone the first execution of the command until a file is modified
+
+[*back to flags index*](#flags)
 
 By default, wgo runs the command immediately. If you wish to postpone running the command until a file is modified, use the -postpone flag.
 

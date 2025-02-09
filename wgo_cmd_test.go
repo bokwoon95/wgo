@@ -647,11 +647,10 @@ func TestWgoCmd_Run(t *testing.T) {
 	})
 
 	t.Run("postpone off", func(t *testing.T) {
-		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		wgoCmd, err := WgoCommand(ctx, []string{
-			"-file", ".none", "echo", "hello",
+			"-xfile", ".", "echo", "hello",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -670,11 +669,10 @@ func TestWgoCmd_Run(t *testing.T) {
 	})
 
 	t.Run("postpone on", func(t *testing.T) {
-		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		wgoCmd, err := WgoCommand(ctx, []string{
-			"-file", ".none", "-postpone", "echo", "hello",
+			"-xfile", ".", "-postpone", "echo", "hello",
 		})
 		if err != nil {
 			t.Fatal(err)
