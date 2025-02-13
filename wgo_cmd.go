@@ -382,17 +382,10 @@ func (wgoCmd *WgoCmd) Run() error {
 		return err
 	}
 	defer watcher.Close()
-	events := make(chan fsnotify.Event)
-	go func() {
-		for {
-			event := <-watcher.Events
-			events <- event
-		}
-	}()
 	for _, root := range wgoCmd.Roots {
 		wgoCmd.addDirsRecursively(watcher, root)
 		if wgoCmd.PollDuration > 0 {
-			go wgoCmd.pollDirectory(wgoCmd.ctx, root, events)
+			go wgoCmd.pollDirectory(wgoCmd.ctx, root, watcher.Events)
 		}
 	}
 	// Timer is used to debounce events. Each event does not directly trigger a
@@ -412,7 +405,7 @@ func (wgoCmd *WgoCmd) Run() error {
 					select {
 					case <-wgoCmd.ctx.Done():
 						return nil
-					case event := <-events:
+					case event := <-watcher.Events:
 						if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) {
 							continue
 						}
@@ -526,7 +519,7 @@ func (wgoCmd *WgoCmd) Run() error {
 						break
 					}
 					continue CMD_CHAIN
-				case event := <-events:
+				case event := <-watcher.Events:
 					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) {
 						continue
 					}
