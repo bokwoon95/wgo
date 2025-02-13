@@ -46,6 +46,13 @@ func init() {
 type WgoCmd struct {
 	// The root directories to watch for changes in. Earlier roots have higher
 	// precedence than later roots (used during file matching).
+	//
+	// Roots should use OS-specific file separators i.e. forward slash '/' on
+	// Linux/macOS and backslash '\' on Windows. They will be normalized to
+	// forward slashes later during matching.
+	//
+	// As a rule of thumb, this file should not import the package "path". It
+	// should only use functions in the package "path/filepath".
 	Roots []string
 
 	// FileRegexps specifies the file patterns to include. They are matched
@@ -377,35 +384,36 @@ func (wgoCmd *WgoCmd) Run() error {
 	defer timer.Stop()
 
 	for restartCount := 0; ; restartCount++ {
-	CMD_CHAIN:
-		for i, args := range wgoCmd.ArgsList {
-			if restartCount == 0 && wgoCmd.Postpone {
-				for {
-					select {
-					case <-wgoCmd.ctx.Done():
-						return nil
-					case event := <-watcher.Events:
-						if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) {
-							continue
+		if restartCount == 0 && wgoCmd.Postpone {
+			done := false
+			for !done {
+				select {
+				case <-wgoCmd.ctx.Done():
+					return nil
+				case event := <-watcher.Events:
+					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) {
+						continue
+					}
+					fileinfo, err := os.Stat(event.Name)
+					if err != nil {
+						continue
+					}
+					if fileinfo.IsDir() {
+						if event.Has(fsnotify.Create) {
+							wgoCmd.addDirsRecursively(watcher, event.Name)
 						}
-						fileinfo, err := os.Stat(event.Name)
-						if err != nil {
-							continue
-						}
-						if fileinfo.IsDir() {
-							if event.Has(fsnotify.Create) {
-								wgoCmd.addDirsRecursively(watcher, event.Name)
-							}
-							continue
-						}
+					} else {
 						if wgoCmd.match(event.Op.String(), event.Name) {
 							timer.Reset(wgoCmd.Debounce)
 						}
-					case <-timer.C:
-						break CMD_CHAIN
 					}
+				case <-timer.C:
+					done = true
 				}
 			}
+		}
+	CMD_CHAIN:
+		for i, args := range wgoCmd.ArgsList {
 			// Step 1: Prepare the command.
 			//
 			// We are not using exec.CommandContext() because it uses
@@ -512,10 +520,10 @@ func (wgoCmd *WgoCmd) Run() error {
 						if event.Has(fsnotify.Create) {
 							wgoCmd.addDirsRecursively(watcher, event.Name)
 						}
-						continue
-					}
-					if wgoCmd.match(event.Op.String(), event.Name) {
-						timer.Reset(wgoCmd.Debounce) // Start the timer.
+					} else {
+						if wgoCmd.match(event.Op.String(), event.Name) {
+							timer.Reset(wgoCmd.Debounce) // Start the timer.
+						}
 					}
 				case <-timer.C: // Timer expired, reload commands.
 					stop(cmd)
