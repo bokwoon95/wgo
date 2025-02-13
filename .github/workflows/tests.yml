@@ -16,6 +16,6 @@ jobs:
           go-version: '1.16.0'
       - run: 'go install github.com/mattn/goveralls@latest'
       - run: 'go test . -coverprofile=coverage -race'
-      - run: 'goveralls -coverprofile=coverage -service=github'
+      - run: 'goveralls -coverprofile=coverage -service=github || true'
         env:
           COVERALLS_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
