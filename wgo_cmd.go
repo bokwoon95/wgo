@@ -122,9 +122,9 @@ type WgoCmd struct {
 	// command(s) until a file is modified.
 	Postpone bool
 
-	ctx     context.Context
-	isRun   bool   // Whether the command is `wgo run`.
-	binPath string // Where the built go binary lives.
+	ctx            context.Context
+	isRun          bool   // Whether the command is `wgo run`.
+	executablePath string // The output path of the `go build` executable.
 }
 
 // WgoCommands instantiates a slices of WgoCmds. Each "::" separator followed
@@ -291,11 +291,11 @@ Flags:
 		if tmpDir == "" {
 			tmpDir = os.TempDir()
 		}
-		wgoCmd.binPath = filepath.Join(tmpDir, "wgo_"+time.Now().Format("20060102150405")+"_"+strconv.Itoa(rand.Intn(5000)))
+		wgoCmd.executablePath = filepath.Join(tmpDir, "wgo_"+time.Now().Format("20060102150405")+"_"+strconv.Itoa(rand.Intn(5000)))
 		if runtime.GOOS == "windows" {
-			wgoCmd.binPath += ".exe"
+			wgoCmd.executablePath += ".exe"
 		}
-		buildArgs := []string{"go", "build", "-o", wgoCmd.binPath}
+		buildArgs := []string{"go", "build", "-o", wgoCmd.executablePath}
 		buildArgs = append(buildArgs, strFlagValues...)
 		for i, ok := range boolFlagValues {
 			if ok {
@@ -303,7 +303,7 @@ Flags:
 			}
 		}
 		buildArgs = append(buildArgs, flagArgs[0])
-		runArgs := []string{wgoCmd.binPath}
+		runArgs := []string{wgoCmd.executablePath}
 		wgoCmd.ArgsList = [][]string{buildArgs, runArgs}
 		flagArgs = flagArgs[1:]
 	}
@@ -355,8 +355,8 @@ func (wgoCmd *WgoCmd) Run() error {
 			return err
 		}
 	}
-	if wgoCmd.binPath != "" {
-		defer os.Remove(wgoCmd.binPath)
+	if wgoCmd.executablePath != "" {
+		defer os.Remove(wgoCmd.executablePath)
 	}
 
 	watcher, err := fsnotify.NewWatcher()

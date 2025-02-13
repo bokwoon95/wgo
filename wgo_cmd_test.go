@@ -342,7 +342,7 @@ func TestWgoCommands(t *testing.T) {
 			},
 			Debounce: 300 * time.Millisecond,
 			isRun:    true,
-			binPath:  "out",
+			executablePath:  "out",
 		}, {
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.css`)},
@@ -375,7 +375,7 @@ func TestWgoCommands(t *testing.T) {
 			},
 			Debounce: 300 * time.Millisecond,
 			isRun:    true,
-			binPath:  "out",
+			executablePath:  "out",
 		}},
 	}, {
 		description: "wgo flags",
@@ -439,7 +439,7 @@ func TestWgoCommands(t *testing.T) {
 			// have to manually reach into the argslist and overwrite it with a
 			// well-known string so that we can compare the commands properly.
 			if tt.description == "parallel commands" || tt.description == "build flags" {
-				gotCmds[0].binPath = "out"
+				gotCmds[0].executablePath = "out"
 				gotCmds[0].ArgsList[0][3] = "out"
 				gotCmds[0].ArgsList[1][0] = "out"
 			}
