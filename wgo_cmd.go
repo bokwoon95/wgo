@@ -371,7 +371,10 @@ func (wgoCmd *WgoCmd) Run() error {
 	// reload, it only resets the timer. Only when the timer is allowed to
 	// fully expire will the reload actually occur.
 	timer := time.NewTimer(0)
-	timer.Stop()
+	if !timer.Stop() {
+		<-timer.C
+	}
+	defer timer.Stop()
 
 	for restartCount := 0; ; restartCount++ {
 	CMD_CHAIN:
