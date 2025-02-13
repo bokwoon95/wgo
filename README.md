@@ -87,6 +87,7 @@ $ wgo run -tags=fts5 -race -trimpath main.go
 - [-verbose](#log-file-events) - Log file events.
 - [-debounce](#debounce-duration) - How quickly to react to file events. Lower debounce values will react quicker.
 - [-postpone](#postpone-the-first-execution-of-the-command-until-a-file-is-modified) - Postpone the first execution of the command until a file is modified.
+- [-poll] (#use-polling-to-detect-file-changes) How often to poll for file changes e.g. 1s. Zero or no value means no polling.
 
 ## Advanced Usage
 
@@ -362,6 +363,18 @@ $ wgo echo hello
 
 # Prints hello only when a file is modified.
 $ wgo -postpone echo hello
+```
+
+## Use polling to detect file changes
+
+If you wish to poll for file changes instead of using system's builtin file watcher, use the -poll flag. This may sometimes be necessary if the system file watcher is unable to pick up file changes e.g. for files on a mounted network drive.
+
+```shell
+# Polls files every 500ms for changes.
+$ wgo run -poll 500ms main.go
+
+# Polls files every 1s for changes.
+$ wgo -poll 1s echo hello
 ```
 
 ## Debug Go code using GoLand or VSCode with wgo

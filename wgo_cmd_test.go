@@ -340,9 +340,9 @@ func TestWgoCommands(t *testing.T) {
 				{"go", "build", "-o", "out", "-tags", "fts5", "main.go"},
 				{"out", "arg1", "arg2"},
 			},
-			Debounce: 300 * time.Millisecond,
-			isRun:    true,
-			executablePath:  "out",
+			Debounce:       300 * time.Millisecond,
+			isRun:          true,
+			executablePath: "out",
 		}, {
 			Roots:       []string{"."},
 			FileRegexps: []*regexp.Regexp{regexp.MustCompile(`\.css`)},
@@ -373,9 +373,9 @@ func TestWgoCommands(t *testing.T) {
 				{"go", "build", "-o", "out", "-p", "5", "-a", "-n", "-race", "-msan", "-asan", "-work", "-x", "-buildvcs", "-linkshared", "-modcacherw", "-trimpath", "."},
 				{"out", "arg1", "arg2"},
 			},
-			Debounce: 300 * time.Millisecond,
-			isRun:    true,
-			executablePath:  "out",
+			Debounce:       300 * time.Millisecond,
+			isRun:          true,
+			executablePath: "out",
 		}},
 	}, {
 		description: "wgo flags",
@@ -714,21 +714,21 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 	}()
 	time.Sleep(3 * time.Second)
 
-	log.Println("add file")
+	log.Println(t.Name(), "add file")
 	err = os.WriteFile("testdata/file_event/foo.txt", []byte("foo"), 0666)
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(3 * time.Second)
 
-	log.Println("edit file")
+	log.Println(t.Name(), "edit file")
 	err = os.WriteFile("testdata/file_event/foo.txt", []byte("foo fighters"), 0666)
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(3 * time.Second)
 
-	log.Println("create nested directory")
+	log.Println(t.Name(), "create nested directory")
 	err = os.MkdirAll("testdata/file_event/internal/baz", 0777)
 	if err != nil {
 		t.Fatal(err)
@@ -770,6 +770,84 @@ internal/bar.txt: bar
 internal/baz/baz.txt: baz
 main.go
 run.bat`
+	if diff := Diff(got, want); diff != "" {
+		t.Error(diff)
+	}
+}
+
+func TestWgoCmd_Polling(t *testing.T) {
+	t.Parallel()
+	os.RemoveAll("testdata/polling/foo.txt")
+	os.RemoveAll("testdata/polling/internal")
+	defer os.RemoveAll("testdata/polling/foo.txt")
+	defer os.RemoveAll("testdata/polling/internal")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	wgoCmd, err := WgoCommand(ctx, []string{"run", "-dir", "testdata/polling", "-file", ".txt", "-poll", "100ms", "./testdata/polling"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := &Buffer{}
+	wgoCmd.Stdout = buf
+	cmdResult := make(chan error)
+	go func() {
+		cmdResult <- wgoCmd.Run()
+	}()
+	time.Sleep(3 * time.Second)
+
+	log.Println(t.Name(), "add file")
+	err = os.WriteFile("testdata/polling/foo.txt", []byte("foo"), 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+
+	log.Println(t.Name(), "edit file")
+	err = os.WriteFile("testdata/polling/foo.txt", []byte("foo fighters"), 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+
+	log.Println(t.Name(), "create nested directory")
+	err = os.MkdirAll("testdata/polling/internal/baz", 0777)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile("testdata/polling/foo.txt", []byte("foo"), 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile("testdata/polling/internal/bar.txt", []byte("bar"), 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile("testdata/polling/internal/baz/baz.txt", []byte("baz"), 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+
+	cancel()
+	err = <-cmdResult
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSpace(buf.String())
+	want := `---
+main.go
+---
+foo.txt: foo
+main.go
+---
+foo.txt: foo fighters
+main.go
+---
+foo.txt: foo
+internal/bar.txt: bar
+internal/baz/baz.txt: baz
+main.go`
 	if diff := Diff(got, want); diff != "" {
 		t.Error(diff)
 	}

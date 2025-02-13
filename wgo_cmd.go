@@ -381,10 +381,25 @@ func (wgoCmd *WgoCmd) Run() error {
 	if err != nil {
 		return err
 	}
+	// events channel will receive events either from the watcher or from
+	// polling.
+	//
+	// I would really prefer to use the watcher.Events channel directly instead
+	// of creating an intermediary channel that aggregates from both sources,
+	// but for some reason that will set off the race detector during tests so
+	// I have to use a separate channel :(.
+	events := make(chan fsnotify.Event)
+	go func() {
+		for {
+			event := <-watcher.Events
+			events <- event
+		}
+	}()
 	defer watcher.Close()
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
-			go wgoCmd.pollDirectory(wgoCmd.ctx, root, watcher.Events)
+			wgoCmd.Logger.Println("POLL", filepath.ToSlash(root))
+			go wgoCmd.pollDirectory(wgoCmd.ctx, root, events)
 		} else {
 			wgoCmd.addDirsRecursively(watcher, root)
 		}
@@ -406,7 +421,7 @@ func (wgoCmd *WgoCmd) Run() error {
 					select {
 					case <-wgoCmd.ctx.Done():
 						return nil
-					case event := <-watcher.Events:
+					case event := <-events:
 						if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) {
 							continue
 						}
@@ -415,7 +430,7 @@ func (wgoCmd *WgoCmd) Run() error {
 							continue
 						}
 						if fileinfo.IsDir() {
-							if event.Has(fsnotify.Create) {
+							if event.Has(fsnotify.Create) && wgoCmd.PollDuration == 0 {
 								wgoCmd.addDirsRecursively(watcher, event.Name)
 							}
 						} else {
@@ -520,7 +535,7 @@ func (wgoCmd *WgoCmd) Run() error {
 						break
 					}
 					continue CMD_CHAIN
-				case event := <-watcher.Events:
+				case event := <-events:
 					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) {
 						continue
 					}
@@ -529,7 +544,7 @@ func (wgoCmd *WgoCmd) Run() error {
 						continue
 					}
 					if fileinfo.IsDir() {
-						if event.Has(fsnotify.Create) {
+						if event.Has(fsnotify.Create) && wgoCmd.PollDuration == 0 {
 							wgoCmd.addDirsRecursively(watcher, event.Name)
 						}
 					} else {
@@ -585,6 +600,9 @@ func compileRegexp(pattern string) (*regexp.Regexp, error) {
 // addDirsRecursively adds directories recursively to a watcher since it
 // doesn't support it natively https://github.com/fsnotify/fsnotify/issues/18.
 // A nice side effect is that we get to log the watched directories as we go.
+//
+// If we are polling (i.e. PollDuration > 0), do not call this method. Call
+// wgoCmd.pollDirectory() instead, which does its own recursive polling.
 func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) {
 	roots := make(map[string]struct{})
 	for _, root := range wgoCmd.Roots {
@@ -696,6 +714,7 @@ func (wgoCmd *WgoCmd) match(op string, path string) bool {
 	return false
 }
 
+// pollDirectory polls a given directory path (recursively) for changes.
 func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events chan<- fsnotify.Event) {
 	// wg tracks the number of active goroutines.
 	var wg sync.WaitGroup
@@ -721,11 +740,44 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 		ctx, cancel := context.WithCancel(ctx)
 		cancelFuncs[name] = cancel
 		if dirEntry.IsDir() {
-			wg.Add(1)
-			go func() {
-				wg.Done()
-				wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events)
+			match := func() bool {
+				dir := filepath.Join(path, name)
+				normalizedDir := filepath.ToSlash(dir)
+				for _, root := range wgoCmd.Roots {
+					if strings.HasPrefix(dir, root+string(filepath.Separator)) {
+						normalizedDir = filepath.ToSlash(strings.TrimPrefix(dir, root+string(filepath.Separator)))
+						break
+					}
+				}
+				for _, r := range wgoCmd.ExcludeDirRegexps {
+					if r.MatchString(normalizedDir) {
+						return false
+					}
+				}
+				for _, r := range wgoCmd.DirRegexps {
+					if r.MatchString(normalizedDir) {
+						wgoCmd.Logger.Println("POLL", normalizedDir)
+						return true
+					}
+				}
+				name := filepath.Base(normalizedDir)
+				switch name {
+				case ".git", ".hg", ".svn", ".idea", ".vscode", ".settings", "node_modules":
+					return false
+				}
+				if strings.HasPrefix(name, ".") {
+					return false
+				}
+				wgoCmd.Logger.Println("POLL", normalizedDir)
+				return true
 			}()
+			if match {
+				wg.Add(1)
+				go func() {
+					wg.Done()
+					wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events)
+				}()
+			}
 		} else {
 			wg.Add(1)
 			go func() {
@@ -788,6 +840,7 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 	}
 }
 
+// pollFile polls an individual file for changes.
 func (wgoCmd *WgoCmd) pollFile(ctx context.Context, path string, events chan<- fsnotify.Event) {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
