@@ -383,9 +383,10 @@ func (wgoCmd *WgoCmd) Run() error {
 	}
 	defer watcher.Close()
 	for _, root := range wgoCmd.Roots {
-		wgoCmd.addDirsRecursively(watcher, root)
 		if wgoCmd.PollDuration > 0 {
 			go wgoCmd.pollDirectory(wgoCmd.ctx, root, watcher.Events)
+		} else {
+			wgoCmd.addDirsRecursively(watcher, root)
 		}
 	}
 	// Timer is used to debounce events. Each event does not directly trigger a
