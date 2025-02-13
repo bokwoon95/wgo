@@ -384,6 +384,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	defer watcher.Close()
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
+			wgoCmd.Logger.Println("POLL", filepath.ToSlash(root))
 			go wgoCmd.pollDirectory(wgoCmd.ctx, root, watcher.Events)
 		} else {
 			wgoCmd.addDirsRecursively(watcher, root)
@@ -716,17 +717,54 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 		wgoCmd.Logger.Println(err)
 		return
 	}
+	// TODO: figure out why we are logging `POLL testdata` so many times when we run
+	//  go install . && wgo -postpone -verbose -poll 300ms echo hello
 	for _, dirEntry := range dirEntries {
 		name := dirEntry.Name()
 		ctx, cancel := context.WithCancel(ctx)
 		cancelFuncs[name] = cancel
 		if dirEntry.IsDir() {
-			wg.Add(1)
-			go func() {
-				wg.Done()
-				wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events)
+			match := func() bool {
+				normalizedDir := filepath.ToSlash(filepath.Join(path, name))
+				for _, root := range wgoCmd.Roots {
+					if strings.HasPrefix(path, root+string(filepath.Separator)) {
+						normalizedDir = filepath.ToSlash(strings.TrimPrefix(path, root+string(filepath.Separator)))
+						break
+					}
+				}
+				for _, r := range wgoCmd.ExcludeDirRegexps {
+					if r.MatchString(normalizedDir) {
+						return false
+					}
+				}
+				for _, r := range wgoCmd.DirRegexps {
+					if r.MatchString(normalizedDir) {
+						wgoCmd.Logger.Println("POLL", normalizedDir)
+						return true
+					}
+				}
+				name := filepath.Base(normalizedDir)
+				switch name {
+				case ".git", ".hg", ".svn", ".idea", ".vscode", ".settings", "node_modules":
+					return false
+				}
+				if strings.HasPrefix(name, ".") {
+					return false
+				}
+				wgoCmd.Logger.Println("POLL", normalizedDir)
+				return true
 			}()
+			if match {
+				wg.Add(1)
+				go func() {
+					wg.Done()
+					wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events)
+				}()
+			}
 		} else {
+			// TODO: how do we avoid polling files unnecessarily but also not
+			// relying on wgoCmd.match because that means we end up logging
+			// twice for each matched file?
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
