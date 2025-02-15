@@ -192,7 +192,7 @@ func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
 	flagset.BoolVar(&wgoCmd.EnableStdin, "stdin", false, "Enable stdin for the last command.")
 	flagset.StringVar(&debounce, "debounce", "300ms", "How quickly to react to file events. Lower debounce values will react quicker.")
 	flagset.BoolVar(&wgoCmd.Postpone, "postpone", false, "Postpone the first execution of the command until a file is modified.")
-	flagset.StringVar(&poll, "poll", "", "How often to poll for file changes e.g. 1s. Zero or no value means no polling.")
+	flagset.StringVar(&poll, "poll", "", "How often to poll for file changes. Zero or no value means no polling.")
 	flagset.Func("root", "Specify an additional root directory to watch. Can be repeated.", func(value string) error {
 		root, err := filepath.Abs(value)
 		if err != nil {
