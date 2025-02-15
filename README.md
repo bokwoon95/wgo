@@ -87,7 +87,7 @@ $ wgo run -tags=fts5 -race -trimpath main.go
 - [-verbose](#log-file-events) - Log file events.
 - [-debounce](#debounce-duration) - How quickly to react to file events. Lower debounce values will react quicker.
 - [-postpone](#postpone-the-first-execution-of-the-command-until-a-file-is-modified) - Postpone the first execution of the command until a file is modified.
-- [-poll](#use-polling-to-detect-file-changes) How often to poll for file changes e.g. 1s. Zero or no value means no polling.
+- [-poll](#use-polling-to-detect-file-changes) - How often to poll for file changes e.g. 1s. Zero or no value means no polling.
 
 ## Advanced Usage
 
