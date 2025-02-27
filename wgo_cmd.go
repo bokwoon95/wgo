@@ -774,7 +774,7 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 			if match {
 				wg.Add(1)
 				go func() {
-					wg.Done()
+					defer wg.Done()
 					wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events)
 				}()
 			}
