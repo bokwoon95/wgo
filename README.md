@@ -241,6 +241,27 @@ $ wgo run main.go \
     :: wgo -file .ts tsc 'assets/*.ts' --outfile assets/index.js
 ```
 
+### NOTE: It specifically has to be "wgo" directly after "::" for a parallel command to be started
+
+Even if wgo was invoked with `go tool wgo` or its full binary path (e.g. `/usr/local/bin/wgo`), wgo only recognizes the magic string `"wgo"` after the `"::"` as the signal to start a new parallel command (otherwise it is treated as a chained command).
+
+
+```shell
+# ❌ These do not start parallel wgo commands. Do not nest wgo commands like this.
+$ go tool wgo        echo 1 :: go tool wgo        echo 2 :: go tool wgo        echo 3
+$ /usr/local/bin/wgo echo 1 :: /usr/local/bin/wgo echo 2 :: /usr/local/bin/wgo echo 3
+
+# ✅ These start parallel wgo commands.
+$ wgo                echo 1 :: wgo echo 2 :: wgo echo 3
+$ go tool wgo        echo 1 :: wgo echo 2 :: wgo echo 3
+$ /usr/local/bin/wgo echo 1 :: wgo echo 2 :: wgo echo 3
+#                              └┬┘           └┬┘
+#                               └──────┬──────┘
+# This is not spawning a separate wgo process, it is a placeholder string
+# recognized by the wgo binary, which is in turn responsible for running all the
+# specified commands in parallel. There is only ever one parent wgo process.
+```
+
 ## Running commands in a different directory
 
 [*back to flags index*](#flags)
