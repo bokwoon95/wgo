@@ -173,7 +173,7 @@ func TestWgoCmd_match(t *testing.T) {
 		tt := tt
 		t.Run(tt.description, func(t *testing.T) {
 			t.Parallel()
-			wgoCmd, err := WgoCommand(context.Background(), tt.args)
+			wgoCmd, err := WgoCommand(context.Background(), 0, tt.args)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -263,7 +263,7 @@ func TestWgoCmd_addDirsRecursively(t *testing.T) {
 		tt := tt
 		t.Run(tt.description, func(t *testing.T) {
 			t.Parallel()
-			wgoCmd, err := WgoCommand(context.Background(), tt.args)
+			wgoCmd, err := WgoCommand(context.Background(), 0, tt.args)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -457,7 +457,7 @@ func TestWgoCommands(t *testing.T) {
 func TestWgoCmd_Run(t *testing.T) {
 	t.Run("args", func(t *testing.T) {
 		t.Parallel()
-		wgoCmd, err := WgoCommand(context.Background(), []string{
+		wgoCmd, err := WgoCommand(context.Background(), 0, []string{
 			"run", "-exit", "-dir", "testdata/args", "./testdata/args", "apple", "banana", "cherry",
 		})
 		if err != nil {
@@ -478,7 +478,7 @@ func TestWgoCmd_Run(t *testing.T) {
 
 	t.Run("build flags off", func(t *testing.T) {
 		t.Parallel()
-		wgoCmd, err := WgoCommand(context.Background(), []string{
+		wgoCmd, err := WgoCommand(context.Background(), 0, []string{
 			"run", "-exit", "-dir", "testdata/build_flags", "./testdata/build_flags",
 		})
 		if err != nil {
@@ -499,7 +499,7 @@ func TestWgoCmd_Run(t *testing.T) {
 
 	t.Run("build flags on", func(t *testing.T) {
 		t.Parallel()
-		wgoCmd, err := WgoCommand(context.Background(), []string{
+		wgoCmd, err := WgoCommand(context.Background(), 0, []string{
 			"run", "-exit", "-dir", "testdata/build_flags", "-tags=bar", "./testdata/build_flags",
 		})
 		if err != nil {
@@ -520,7 +520,7 @@ func TestWgoCmd_Run(t *testing.T) {
 
 	t.Run("env", func(t *testing.T) {
 		t.Parallel()
-		cmd, err := WgoCommand(context.Background(), []string{
+		cmd, err := WgoCommand(context.Background(), 0, []string{
 			"run", "-exit", "-dir", "testdata/env", "./testdata/env",
 		})
 		if err != nil {
@@ -547,7 +547,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		}
 		os.RemoveAll(binPath)
 		defer os.RemoveAll(binPath)
-		wgoCmd, err := WgoCommand(context.Background(), []string{
+		wgoCmd, err := WgoCommand(context.Background(), 0, []string{
 			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", binPath, "./testdata/hello_world",
 			"::", binPath,
 		})
@@ -577,7 +577,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		}
 		os.RemoveAll(binPath)
 		defer os.RemoveAll(binPath)
-		wgoCmd, err := WgoCommand(ctx, []string{
+		wgoCmd, err := WgoCommand(ctx, 0, []string{
 			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", binPath, "./testdata/hello_world",
 			"::", binPath,
 		})
@@ -601,7 +601,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, []string{
+		wgoCmd, err := WgoCommand(ctx, 0, []string{
 			"run", "-dir", "testdata/signal", "./testdata/signal",
 		})
 		if err != nil {
@@ -627,7 +627,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, []string{
+		wgoCmd, err := WgoCommand(ctx, 0, []string{
 			"run", "-dir", "testdata/signal", "./testdata/signal", "-trap-signal",
 		})
 		if err != nil {
@@ -650,7 +650,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, []string{
+		wgoCmd, err := WgoCommand(ctx, 0, []string{
 			"-xfile", ".", "echo", "hello",
 		})
 		if err != nil {
@@ -673,7 +673,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, []string{
+		wgoCmd, err := WgoCommand(ctx, 0, []string{
 			"-xfile", ".", "-postpone", "echo", "hello",
 		})
 		if err != nil {
@@ -702,7 +702,7 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	wgoCmd, err := WgoCommand(ctx, []string{"run", "-dir", "testdata/file_event", "-file", ".txt", "./testdata/file_event"})
+	wgoCmd, err := WgoCommand(ctx, 0, []string{"run", "-dir", "testdata/file_event", "-file", ".txt", "./testdata/file_event"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -784,7 +784,7 @@ func TestWgoCmd_Polling(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	wgoCmd, err := WgoCommand(ctx, []string{"run", "-dir", "testdata/polling", "-file", ".txt", "-poll", "100ms", "./testdata/polling"})
+	wgoCmd, err := WgoCommand(ctx, 0, []string{"run", "-dir", "testdata/polling", "-file", ".txt", "-poll", "100ms", "./testdata/polling"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -857,7 +857,7 @@ func TestStdin(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	wgoCmd, err := WgoCommand(ctx, []string{"run", "-exit", "-dir", "testdata/stdin", "-stdin", "./testdata/stdin"})
+	wgoCmd, err := WgoCommand(ctx, 0, []string{"run", "-exit", "-dir", "testdata/stdin", "-stdin", "./testdata/stdin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -893,7 +893,7 @@ func TestShellWrapping(t *testing.T) {
 	}
 
 	// Assert that WgoCommand handles the builtin (via shell wrapping).
-	wgoCmd, err := WgoCommand(context.Background(), []string{"-exit", builtin})
+	wgoCmd, err := WgoCommand(context.Background(), 0, []string{"-exit", builtin})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -904,11 +904,11 @@ func TestShellWrapping(t *testing.T) {
 }
 
 func TestHelp(t *testing.T) {
-	_, err := WgoCommand(context.Background(), []string{"-h"})
+	_, err := WgoCommand(context.Background(), 0, []string{"-h"})
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Errorf("expected flag.ErrHelp, got %#v", err)
 	}
-	_, err = WgoCommand(context.Background(), []string{"run", "-h"})
+	_, err = WgoCommand(context.Background(), 0, []string{"run", "-h"})
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Errorf("expected flag.ErrHelp, got %#v", err)
 	}
