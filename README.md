@@ -94,6 +94,7 @@ $ wgo run -tags=fts5 -race -trimpath main.go
 - [Chaining commands](#chaining-commands)
 - [Clear terminal on restart](#clear-terminal-on-restart)
 - [Running parallel wgo commands](#running-parallel-wgo-commands)
+- [Don't stop the application on compile errors](#dont-stop-the-application-on-compile-errors)
 - [Debug Go code using GoLand or VSCode with wgo](#debug-go-code-using-goland-or-vscode-with-wgo)
 
 ## Including and excluding files
@@ -388,6 +389,8 @@ $ wgo -postpone echo hello
 
 ## Use polling to detect file changes
 
+[*back to flags index*](#flags)
+
 If you wish to poll for file changes instead of using system's builtin file watcher, use the -poll flag. This may sometimes be necessary if the system file watcher is unable to pick up file changes e.g. for files on a mounted network drive.
 
 ```shell
@@ -396,6 +399,14 @@ $ wgo run -poll 500ms main.go
 
 # Polls files every 1s for changes.
 $ wgo -poll 1s echo hello
+```
+
+## Don't stop the application on compile errors
+
+To keep the old application running even while there are compile errors, separate wgo into two [parallel commands](#running-parallel-wgo-commands): one to compile the application, another to rerun the application whenever the application executable file changes. When there is a syntax error, only the compile step will fail (the run step will keep running). When the compile step succeeds, it will rebuild the executable file which retriggers the run step to rerun the executable.
+
+```shell
+$ wgo -file .go go build -o my_app.exe ./my_app :: wgo -postpone -file my_app.exe ./my_app.exe
 ```
 
 ## Debug Go code using GoLand or VSCode with wgo
