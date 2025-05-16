@@ -142,23 +142,29 @@ type WgoCmd struct {
 // by "wgo" indicates a new WgoCmd.
 func WgoCommands(ctx context.Context, args []string) ([]*WgoCmd, error) {
 	var wgoCmds []*WgoCmd
-	i, j, num := 1, 1, 1
+	i, j, wgoNumber := 1, 1, 1
 	for j < len(args) {
 		if args[j] != "::" || j+1 >= len(args) || args[j+1] != "wgo" {
 			j++
 			continue
 		}
-		wgoCmd, err := WgoCommand(ctx, args[i:j])
+		wgoCmd, err := WgoCommand(ctx, wgoNumber, args[i:j])
 		if err != nil {
-			return nil, fmt.Errorf("[wgo %d] %w", num, err)
+			if wgoNumber > 1 {
+				return nil, fmt.Errorf("[wgo%d] %w", wgoNumber, err)
+			}
+			return nil, fmt.Errorf("[wgo] %w", err)
 		}
 		wgoCmds = append(wgoCmds, wgoCmd)
-		i, j, num = j+2, j+2, num+1
+		i, j, wgoNumber = j+2, j+2, wgoNumber+1
 	}
 	if j > i {
-		wgoCmd, err := WgoCommand(ctx, args[i:j])
+		wgoCmd, err := WgoCommand(ctx, wgoNumber, args[i:j])
 		if err != nil {
-			return nil, fmt.Errorf("[wgo %d] %w", num, err)
+			if wgoNumber > 1 {
+				return nil, fmt.Errorf("[wgo%d] %w", wgoNumber, err)
+			}
+			return nil, fmt.Errorf("[wgo] %w", err)
 		}
 		wgoCmds = append(wgoCmds, wgoCmd)
 	}
@@ -167,7 +173,7 @@ func WgoCommands(ctx context.Context, args []string) ([]*WgoCmd, error) {
 
 // WgoCommand instantiates a new WgoCmd. Each "::" separator indicates a new
 // chained command.
-func WgoCommand(ctx context.Context, args []string) (*WgoCmd, error) {
+func WgoCommand(ctx context.Context, wgoNumber int, args []string) (*WgoCmd, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -278,7 +284,11 @@ Flags:
 		return nil, err
 	}
 	if verbose {
-		wgoCmd.Logger = log.New(os.Stderr, "[wgo] ", 0)
+		if wgoNumber > 1 {
+			wgoCmd.Logger = log.New(os.Stderr, fmt.Sprintf("[wgo%d] ", wgoNumber), 0)
+		} else {
+			wgoCmd.Logger = log.New(os.Stderr, "[wgo] ", 0)
+		}
 	}
 	if debounce == "" {
 		wgoCmd.Debounce = 300 * time.Millisecond
