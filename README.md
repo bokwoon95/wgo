@@ -143,9 +143,9 @@ $ wgo run -file .html -file .css main.go
 
 Technically the dot `.` matches any character, but file extensions are such a common pattern that wgo includes a slight modification to the regex matching rules:
 
-*Any dot `.` immediately followed by an alphabet `[a-zA-Z]` is treated as a dot literal i.e. `\.`*
+*Any dot `.` immediately followed by a letter `[a-zA-Z]` is treated as a dot literal i.e. `\.`*
 
-So `.css` really means `\.css`, but `.*` still means `.*` because `*` is not an alphabet. If you really want to use the dot `.` wildcard followed by an alphabet, wrap it in (a bracket group) so that it is not immediately followed by an alphabet i.e. `(.)abc`.
+So `.css` really means `\.css`, but `.*` still means `.*` because `*` is not a letter. If you really want to use the dot `.` wildcard followed by a letter, wrap it in (a bracket group) so that it is not immediately followed by a letter i.e. `(.)abc`.
 
 ## Including and excluding directories
 
