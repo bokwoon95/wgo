@@ -517,6 +517,7 @@ func (wgoCmd *WgoCmd) Run() error {
 			// Step 2: Run the command in the background.
 			cmdResult := make(chan error, 1)
 			waitDone := make(chan struct{})
+			wgoCmd.Logger.Println("EXECUTING", cmd.String())
 			err = cmd.Start()
 			if err != nil {
 				return err
