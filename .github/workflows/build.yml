@@ -10,7 +10,7 @@ jobs:
       - name: 'Clone repo'
         uses: 'actions/checkout@v4'
       - name: 'Install go'
-        uses: 'actions/setup-go@v5'
+        uses: 'actions/setup-go@v6'
         with:
           go-version: 'stable'
       - run: 'GOOS=linux GOARCH=amd64 go build -ldflags "-w" -o wgo-linux .'
