@@ -663,7 +663,7 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 						if unwatchCount > len(watchList)/2 {
 							unwatchCount = int(0.2 * float64(len(watchList)))
 						}
-						for i := len(watchList) - 1; i >= unwatchCount; i-- {
+						for i := len(watchList) - unwatchCount; i < len(watchList); i++ {
 							watcher.Remove(watchList[i])
 						}
 						wgoCmd.Logger.Printf("ERROR too many open files (%d directories), not watching any more\n", len(watchList))
@@ -692,7 +692,7 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 				if unwatchCount > len(watchList)/2 {
 					unwatchCount = int(0.2 * float64(len(watchList)))
 				}
-				for i := len(watchList) - 1; i >= unwatchCount; i-- {
+				for i := len(watchList) - unwatchCount; i < len(watchList); i++ {
 					watcher.Remove(watchList[i])
 				}
 				wgoCmd.Logger.Printf("ERROR too many open files (%d directories), not watching any more\n", len(watchList))
