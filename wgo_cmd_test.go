@@ -380,7 +380,7 @@ func TestWgoCommands(t *testing.T) {
 	}, {
 		description: "wgo flags",
 		args: []string{
-			"wgo", "-root", "/secrets", "-file", ".", "-verbose", "-postpone", "echo", "hello",
+			"wgo", "-root", "/secrets", "-file", ".", "-exec-log", "-log-prefix", "[custom] ", "-postpone", "echo", "hello",
 		},
 		wantCmds: []*WgoCmd{{
 			Roots:       []string{".", "/secrets"},
@@ -390,6 +390,8 @@ func TestWgoCommands(t *testing.T) {
 			},
 			Debounce: 300 * time.Millisecond,
 			Postpone: true,
+			ExecLog:  true,
+			LogPrefix: "[custom] ",
 		}},
 	}, {
 		description: "escaped ::",
@@ -445,7 +447,7 @@ func TestWgoCommands(t *testing.T) {
 			}
 			opts := []cmp.Option{
 				// Comparing loggers always fails, ignore it.
-				cmpopts.IgnoreFields(WgoCmd{}, "Logger"),
+				cmpopts.IgnoreFields(WgoCmd{}, "Logger", "logPrefix", "logExecuting"),
 			}
 			if diff := Diff(gotCmds, tt.wantCmds, opts...); diff != "" {
 				t.Error(diff)

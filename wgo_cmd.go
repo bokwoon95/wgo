@@ -124,6 +124,15 @@ type WgoCmd struct {
 	// If Exit is true, WgoCmd exits once the last command exits.
 	Exit bool
 
+	// ExecMsg is prefixed before the EXECUTING log line when provided.
+	ExecMsg string
+
+	// ExecLog controls whether the EXECUTING line is logged without -verbose.
+	ExecLog bool
+
+	// LogPrefix overrides the default [wgo]/[wgoN] log prefix when set.
+	LogPrefix string
+
 	// Debounce duration for file events.
 	Debounce time.Duration
 
@@ -138,6 +147,8 @@ type WgoCmd struct {
 	ctx            context.Context
 	isRun          bool   // Whether the command is `wgo run`.
 	executablePath string // The output path of the `go build` executable.
+	logPrefix      string // Log prefix used for EXECUTING output.
+	logExecuting   bool   // Whether to emit the EXECUTING line (verbose or exec-log).
 }
 
 // WgoCommands instantiates a slices of WgoCmds. Each "::" separator followed
@@ -193,10 +204,18 @@ func WgoCommand(ctx context.Context, wgoNumber int, args []string) (*WgoCmd, err
 
 	// Parse flags.
 	var debounce, poll string
+	var logPrefixSet bool
 	flagset := flag.NewFlagSet("", flag.ContinueOnError)
 	flagset.StringVar(&wgoCmd.Dir, "cd", "", "Change to a different directory to run the commands.")
 	flagset.BoolVar(&verbose, "verbose", false, "Log file events.")
 	flagset.BoolVar(&wgoCmd.Exit, "exit", false, "Exit when the last command exits.")
+	flagset.StringVar(&wgoCmd.ExecMsg, "exec-msg", "", "Prefix the EXECUTING log line with a message.")
+	flagset.BoolVar(&wgoCmd.ExecLog, "exec-log", false, "Log the EXECUTING line without enabling verbose file event logging.")
+	flagset.Func("log-prefix", "Override the default log prefix. Use an empty value to disable the prefix.", func(value string) error {
+		wgoCmd.LogPrefix = value
+		logPrefixSet = true
+		return nil
+	})
 	flagset.BoolVar(&wgoCmd.EnableStdin, "stdin", false, "Enable stdin for the last command.")
 	flagset.StringVar(&debounce, "debounce", "300ms", "How quickly to react to file events. Lower debounce values will react quicker.")
 	flagset.BoolVar(&wgoCmd.Postpone, "postpone", false, "Postpone the first execution of the command until a file is modified.")
@@ -285,12 +304,16 @@ Flags:
 	if err != nil {
 		return nil, err
 	}
+	if logPrefixSet {
+		wgoCmd.logPrefix = wgoCmd.LogPrefix
+	} else if wgoNumber > 1 {
+		wgoCmd.logPrefix = fmt.Sprintf("[wgo%d] ", wgoNumber)
+	} else {
+		wgoCmd.logPrefix = "[wgo] "
+	}
+	wgoCmd.logExecuting = verbose || wgoCmd.ExecLog
 	if verbose {
-		if wgoNumber > 1 {
-			wgoCmd.Logger = log.New(os.Stderr, fmt.Sprintf("[wgo%d] ", wgoNumber), 0)
-		} else {
-			wgoCmd.Logger = log.New(os.Stderr, "[wgo] ", 0)
-		}
+		wgoCmd.Logger = log.New(os.Stderr, wgoCmd.logPrefix, 0)
 	}
 	if debounce == "" {
 		wgoCmd.Debounce = 300 * time.Millisecond
@@ -519,7 +542,7 @@ func (wgoCmd *WgoCmd) Run() error {
 			// Step 2: Run the command in the background.
 			cmdResult := make(chan error, 1)
 			waitDone := make(chan struct{})
-			wgoCmd.Logger.Println("EXECUTING", cmd.String())
+			wgoCmd.logExecutingLine(cmd)
 			err = cmd.Start()
 			if err != nil {
 				return err
@@ -608,6 +631,18 @@ func compileRegexp(pattern string) (*regexp.Regexp, error) {
 		}
 	}
 	return regexp.Compile(b.String())
+}
+
+// logExecutingLine prints the EXECUTING line when enabled by -verbose or -exec-log.
+func (wgoCmd *WgoCmd) logExecutingLine(cmd *exec.Cmd) {
+	if !wgoCmd.logExecuting {
+		return
+	}
+	if wgoCmd.ExecMsg != "" {
+		fmt.Fprintln(os.Stderr, wgoCmd.logPrefix+wgoCmd.ExecMsg+" EXECUTING "+cmd.String())
+		return
+	}
+	fmt.Fprintln(os.Stderr, wgoCmd.logPrefix+"EXECUTING "+cmd.String())
 }
 
 // addDirsRecursively adds directories recursively to a watcher since it

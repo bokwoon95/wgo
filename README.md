@@ -85,6 +85,9 @@ $ wgo run -tags=fts5 -race -trimpath main.go
 - [-exit](#exit-when-the-last-command-exits) - Exit when the last command exits.
 - [-stdin](#enable-stdin) - Enable stdin for the last command.
 - [-verbose](#log-file-events) - Log file events.
+- [-exec-msg](#exec-message) - Prefix the EXECUTING log line with a message.
+- [-exec-log](#exec-log) - Log the EXECUTING line without verbose file events.
+- [-log-prefix](#log-prefix) - Override the default log prefix.
 - [-debounce](#debounce-duration) - How quickly to react to file events. Lower debounce values will react quicker.
 - [-postpone](#postpone-the-first-execution-of-the-command-until-a-file-is-modified) - Postpone the first execution of the command until a file is modified.
 - [-poll](#use-polling-to-detect-file-changes) - How often to poll for file changes. Zero or no value means no polling.
@@ -357,6 +360,43 @@ Listening on localhost:8080
 [wgo] CREATE server/main.go
 [wgo] WRITE server/main.go
 Listening on localhost:8080
+```
+
+## Exec message
+
+[*back to flags index*](#flags)
+
+Prefix the EXECUTING log line with a custom message (useful when running
+multiple watchers). This message is shown whenever the EXECUTING line is
+enabled (via -verbose or -exec-log).
+
+```shell
+$ wgo run -verbose -exec-msg "Watcher > Scheduler" ./cmd/scheduler
+[wgo] Watcher > Scheduler EXECUTING /bin/sh -c /path/to/wgo_...
+```
+
+## Exec log
+
+[*back to flags index*](#flags)
+
+Log the EXECUTING line without turning on verbose file event logging.
+
+```shell
+$ wgo -exec-log -exec-msg "Watcher > Scheduler" ./cmd/scheduler
+[wgo] Watcher > Scheduler EXECUTING /bin/sh -c ./cmd/scheduler
+```
+
+## Log prefix
+
+[*back to flags index*](#flags)
+
+Override the default `[wgo]` or `[wgoN]` log prefix. Include any trailing
+space you want in the prefix. Pass an empty value to disable the prefix
+entirely.
+
+```shell
+$ wgo -log-prefix "[dev] " -exec-log -exec-msg "API" ./cmd/server
+[dev] API EXECUTING /bin/sh -c ./cmd/server
 ```
 
 ## Debounce duration
