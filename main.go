@@ -75,7 +75,7 @@ func main() {
 	// Wait for results.
 	ok := true
 	for err := range results {
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Println(err)
 			ok = false
 		}
