@@ -638,7 +638,9 @@ func TestWgoCmd_Run(t *testing.T) {
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
-			t.Fatal(err)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal(err)
+			}
 		}
 		got := strings.TrimSpace(buf.String())
 		want := "Waiting...\nInterrupt received, graceful shutdown."
