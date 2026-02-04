@@ -536,7 +536,7 @@ func (wgoCmd *WgoCmd) Run() error {
 				case <-wgoCmd.ctx.Done():
 					stop(cmd)
 					<-waitDone
-					return nil
+					return wgoCmd.ctx.Err()
 				case err := <-cmdResult:
 					if i == len(wgoCmd.ArgsList)-1 {
 						if wgoCmd.Exit {

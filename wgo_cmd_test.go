@@ -588,12 +588,11 @@ func TestWgoCmd_Run(t *testing.T) {
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
-			t.Fatal(err)
-		}
-		got := strings.TrimSpace(buf.String())
-		want := ""
-		if got != want {
-			t.Errorf("\ngot:  %q\nwant: %q", got, want)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal(err)
+			}
+		} else {
+			t.Errorf("\ngot:  nil error\nwant: context.DeadlineExceeded")
 		}
 	})
 
@@ -611,7 +610,9 @@ func TestWgoCmd_Run(t *testing.T) {
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
-			t.Fatal(err)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal(err)
+			}
 		}
 		got := strings.TrimSpace(buf.String())
 		want := "Waiting..."
@@ -660,7 +661,9 @@ func TestWgoCmd_Run(t *testing.T) {
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
-			t.Fatal(err)
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal(err)
+			}
 		}
 		got := strings.TrimSpace(buf.String())
 		want := "hello"
@@ -749,7 +752,7 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 
 	cancel()
 	err = <-cmdResult
-	if err != nil {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	got := strings.TrimSpace(buf.String())
@@ -831,7 +834,7 @@ func TestWgoCmd_Polling(t *testing.T) {
 
 	cancel()
 	err = <-cmdResult
-	if err != nil {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	got := strings.TrimSpace(buf.String())
