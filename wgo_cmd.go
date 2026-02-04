@@ -111,8 +111,7 @@ type WgoCmd struct {
 	// EnableStdin controls whether the Stdin field is used.
 	EnableStdin bool
 
-	// Stdin is where the last command gets its stdin input from (EnableStdin
-	// must be true).
+	// Stdin is where commands get stdin input from (EnableStdin must be true).
 	Stdin io.Reader
 
 	// Stdout is where the commands write their stdout output.
@@ -425,6 +424,31 @@ func (wgoCmd *WgoCmd) Run() error {
 	}
 	defer timer.Stop()
 
+	// Start a background job that continuously drains data from os.Stdin and
+	// feeds it into stdinPipe (which connected to an exec.Cmd). stdinPipe can
+	// be swapped out anytime when the exec.Cmd changes, so access is guarded
+	// by a mutex.
+	var stdinPipe io.WriteCloser
+	var stdinPipeMutex sync.Mutex
+	if wgoCmd.EnableStdin {
+		go func() {
+			p := make([]byte, 4096)
+			for {
+				n, err := wgoCmd.Stdin.Read(p)
+				if n > 0 {
+					stdinPipeMutex.Lock()
+					if stdinPipe != nil {
+						_, _ = stdinPipe.Write(p[:n])
+					}
+					stdinPipeMutex.Unlock()
+				}
+				if err != nil {
+					break
+				}
+			}
+		}()
+	}
+
 	for restartCount := 0; ; restartCount++ {
 	CMD_CHAIN:
 		for i, args := range wgoCmd.ArgsList {
@@ -494,26 +518,19 @@ func (wgoCmd *WgoCmd) Run() error {
 				}
 			}
 			// If the user enabled it, feed wgoCmd.Stdin to the command's
-			// Stdin. Only the last command gets to read from Stdin -- if we
-			// give Stdin to every command in the middle it will prevent the
-			// next command from being executed if they don't consume Stdin.
+			// Stdin.
 			//
 			// We have to use cmd.StdinPipe() here instead of assigning
 			// cmd.Stdin directly, otherwise `wgo run ./testdata/stdin` doesn't
 			// work interactively (the tests will pass, but somehow it won't
 			// actually work if you run it in person. I don't know why).
-			var wg sync.WaitGroup
-			if wgoCmd.EnableStdin && i == len(wgoCmd.ArgsList)-1 {
-				stdinPipe, err := cmd.StdinPipe()
+			if wgoCmd.EnableStdin {
+				stdinPipeMutex.Lock()
+				stdinPipe, err = cmd.StdinPipe()
+				stdinPipeMutex.Unlock()
 				if err != nil {
 					return err
 				}
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					defer stdinPipe.Close()
-					_, _ = io.Copy(stdinPipe, wgoCmd.Stdin)
-				}()
 			}
 
 			// Step 2: Run the command in the background.
@@ -525,9 +542,8 @@ func (wgoCmd *WgoCmd) Run() error {
 				return err
 			}
 			go func() {
-				wg.Wait()
+				defer close(waitDone)
 				cmdResult <- cmd.Wait()
-				close(waitDone)
 			}()
 
 			// Step 3: Wait for events in the event loop.

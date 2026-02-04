@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"io"
 	"log"
 	"math/rand"
 	"os"
@@ -862,16 +863,37 @@ func TestStdin(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	wgoCmd, err := WgoCommand(ctx, 0, []string{"run", "-exit", "-dir", "testdata/stdin", "-stdin", "./testdata/stdin"})
+	// Precompile ./testdata/stdin executable so that wgoCmd.Run() isn't
+	// affected by Go compile times. We need to command to run _immediately_ so
+	// that it starts reading from stdin immediately.
+	executablePath := filepath.Join(os.TempDir(), t.Name()+".exe")
+	err := exec.Command("go", "build", "-o", executablePath, "./testdata/stdin").Run()
 	if err != nil {
 		t.Fatal(err)
 	}
-	wgoCmd.Stdin = strings.NewReader("foo\nbar\nbaz")
+	defer os.Remove(executablePath)
+	wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", "testdata/stdin", "-stdin", executablePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// This is so awfully flaky, but we probably need to wait like 5 seconds
+	// before writing to stdin in case the command hasn't started. Just in
+	// case, idk, the test runner is running on a pentium cpu or something and
+	// causes tests to fail because it's too slow.
+	pipeReader, pipeWriter := io.Pipe()
+	wgoCmd.Stdin = pipeReader
+	go func() {
+		time.Sleep(5 * time.Second)
+		pipeWriter.Write([]byte("foo\nbar\nbaz\n"))
+		pipeWriter.Close()
+	}()
 	buf := &Buffer{}
 	wgoCmd.Stderr = buf
 	err = wgoCmd.Run()
 	if err != nil {
-		t.Fatal(err)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal(err)
+		}
 	}
 	got := strings.TrimSpace(buf.String())
 	want := "1: foo\n2: bar\n3: baz"
