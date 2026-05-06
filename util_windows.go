@@ -1,12 +1,15 @@
 //go:build windows
-// +build windows
 
 package main
 
 import (
+	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/windows"
 )
 
 // stop stops the command and all its child processes.
@@ -18,6 +21,16 @@ func stop(cmd *exec.Cmd) {
 
 // setpgid is a no-op on windows.
 func setpgid(cmd *exec.Cmd) {}
+
+// flushStdin tells the OS to flush the text currently buffered in stdin.
+func flushStdin(r io.Reader) {
+	f, ok := r.(*os.File)
+	if !ok {
+		return
+	}
+	// FlushConsoleInputBuffer(handle)
+	_ = windows.FlushConsoleInputBuffer(windows.Handle(f.Fd()))
+}
 
 // joinArgs joins the arguments of the command into a string which can then be
 // passed to `exec.Command("pwsh.exe", "-command", $STRING)`. Examples:

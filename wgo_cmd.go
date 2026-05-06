@@ -475,6 +475,12 @@ func (wgoCmd *WgoCmd) Run() error {
 							}
 						}
 					case <-timer.C:
+						if wgoCmd.EnableStdin {
+							stdinPipeMutex.Lock()
+							stdinPipe = nil
+							stdinPipeMutex.Unlock()
+							flushStdin(wgoCmd.Stdin)
+						}
 						break CMD_CHAIN
 					}
 				}
@@ -582,6 +588,12 @@ func (wgoCmd *WgoCmd) Run() error {
 						}
 					}
 				case <-timer.C: // Timer expired, reload commands.
+					if wgoCmd.EnableStdin {
+						stdinPipeMutex.Lock()
+						stdinPipe = nil
+						stdinPipeMutex.Unlock()
+						flushStdin(wgoCmd.Stdin)
+					}
 					stop(cmd)
 					<-waitDone
 					break CMD_CHAIN
