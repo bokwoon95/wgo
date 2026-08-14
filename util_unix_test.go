@@ -1,5 +1,4 @@
 //go:build !windows
-// +build !windows
 
 package main
 
@@ -59,7 +58,6 @@ func Test_joinArgs(t *testing.T) {
 	}}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.description, func(t *testing.T) {
 			t.Parallel()
 			got := joinArgs(tt.args)

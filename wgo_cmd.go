@@ -40,10 +40,6 @@ var boolFlagNames = []string{
 
 var defaultLogger = log.New(io.Discard, "", 0)
 
-func init() {
-	rand.Seed(time.Now().Unix())
-}
-
 // WgoCmd implements the `wgo` command.
 type WgoCmd struct {
 	// The root directories to watch for changes in. Earlier roots have higher
@@ -670,8 +666,8 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 			return nil
 		}
 		for _, root := range wgoCmd.Roots {
-			if strings.HasPrefix(path, root+string(filepath.Separator)) {
-				normalizedDir = filepath.ToSlash(strings.TrimPrefix(path, root+string(filepath.Separator)))
+			if after, ok := strings.CutPrefix(path, root+string(filepath.Separator)); ok {
+				normalizedDir = filepath.ToSlash(after)
 				break
 			}
 		}
@@ -740,8 +736,8 @@ func (wgoCmd *WgoCmd) match(op string, path string) bool {
 	normalizedDir := filepath.ToSlash(filepath.Dir(normalizedFile))
 	for _, root := range wgoCmd.Roots {
 		root += string(os.PathSeparator)
-		if strings.HasPrefix(path, root) {
-			normalizedFile = filepath.ToSlash(strings.TrimPrefix(path, root))
+		if after, ok := strings.CutPrefix(path, root); ok {
+			normalizedFile = filepath.ToSlash(after)
 			normalizedDir = filepath.ToSlash(filepath.Dir(normalizedFile))
 			break
 		}
@@ -823,8 +819,8 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 				dir := filepath.Join(path, name)
 				normalizedDir := filepath.ToSlash(dir)
 				for _, root := range wgoCmd.Roots {
-					if strings.HasPrefix(dir, root+string(filepath.Separator)) {
-						normalizedDir = filepath.ToSlash(strings.TrimPrefix(dir, root+string(filepath.Separator)))
+					if after, ok := strings.CutPrefix(dir, root+string(filepath.Separator)); ok {
+						normalizedDir = filepath.ToSlash(after)
 						break
 					}
 				}

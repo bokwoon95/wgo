@@ -60,7 +60,6 @@ func main() {
 	results := make(chan error, len(wgoCmds))
 	var wg sync.WaitGroup
 	for _, wgoCmd := range wgoCmds {
-		wgoCmd := wgoCmd
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

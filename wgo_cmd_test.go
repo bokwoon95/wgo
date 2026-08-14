@@ -71,7 +71,6 @@ func Test_compileRegexp(t *testing.T) {
 	}}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.description, func(t *testing.T) {
 			t.Parallel()
 			r, err := compileRegexp(tt.pattern)
@@ -171,7 +170,6 @@ func TestWgoCmd_match(t *testing.T) {
 	}}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.description, func(t *testing.T) {
 			t.Parallel()
 			wgoCmd, err := WgoCommand(context.Background(), 0, tt.args)
@@ -261,7 +259,6 @@ func TestWgoCmd_addDirsRecursively(t *testing.T) {
 	}}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.description, func(t *testing.T) {
 			t.Parallel()
 			wgoCmd, err := WgoCommand(context.Background(), 0, tt.args)
@@ -420,7 +417,6 @@ func TestWgoCommands(t *testing.T) {
 	}}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.description, func(t *testing.T) {
 			t.Parallel()
 			gotCmds, err := WgoCommands(context.Background(), tt.args)
@@ -941,7 +937,7 @@ func TestHelp(t *testing.T) {
 	}
 }
 
-func Diff(got, want interface{}, opts ...cmp.Option) string {
+func Diff(got, want any, opts ...cmp.Option) string {
 	opts = append(opts,
 		cmp.Exporter(func(typ reflect.Type) bool { return true }),
 		cmpopts.EquateEmpty(),
