@@ -567,7 +567,9 @@ func (wgoCmd *WgoCmd) Run() error {
 					}
 					continue CMD_CHAIN
 				case event := <-events:
-					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) {
+					// Only permit Create, Write, Remove and Rename. Ignore
+					// everything else.
+					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
 						continue
 					}
 					fileinfo, err := os.Stat(event.Name)
@@ -731,6 +733,7 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string) 
 
 // match checks if a given file path should trigger a reload. The op string is
 // provided only for logging purposes, it is not actually used.
+// TODO: this only handles files. How do we handle directories?
 func (wgoCmd *WgoCmd) match(op string, path string) bool {
 	normalizedFile := filepath.ToSlash(path)
 	normalizedDir := filepath.ToSlash(filepath.Dir(normalizedFile))
@@ -910,6 +913,7 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 			if !seen[name] {
 				cancel()
 				delete(cancelFuncs, name)
+				events <- fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}
 			}
 		}
 	}
