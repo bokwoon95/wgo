@@ -53,52 +53,57 @@ func flushStdin(r io.Reader) {
 	}
 	switch runtime.GOOS {
 	case "linux":
+		// Get syscall.SYS_IOCTL value based on runtime.GOARCH (for
+		// runtime.GOOS=linux).
+		var SYS_IOCTL uintptr
+		switch runtime.GOARCH {
+		case "amd64":
+			SYS_IOCTL = 16
+		case "arm64", "loong64", "riscv64":
+			SYS_IOCTL = 29
+		case "mips", "mipsle":
+			SYS_IOCTL = 4054
+		case "mips64", "mips64le":
+			SYS_IOCTL = 5015
+		default:
+			SYS_IOCTL = 54
+		}
+
+		// Get golang.org/x/sys/unix.TCFLSH value based on runtime.GOARCH (for
+		// runtime.GOOS=linux).
+		var TCFLSH uintptr
+		switch runtime.GOARCH {
+		case "mips", "mips64", "mips64le", "mipsle":
+			TCFLSH = 0x5407
+		case "ppc", "ppc64", "ppc64le":
+			TCFLSH = 0x2000741f
+		case "sparc64":
+			TCFLSH = 0x20005407
+		default:
+			TCFLSH = 0x540b
+		}
+
+		// golang.org/x/sys/unix.TCIFLUSH value for runtime.GOOS=linux.
+		var TCIFLUSH uintptr = 0
+
 		// ioctl(fd, TCFLSH, TCIFLUSH)
-		syscall.Syscall(
-			linuxSYSIOCTL(),
-			f.Fd(),
-			linuxTCFLSH(),
-			0, /* golang.org/x/sys/unix.TCIFLUSH on linux */
-		)
+		syscall.Syscall(SYS_IOCTL, f.Fd(), TCFLSH, TCIFLUSH)
 	case "darwin", "dragonfly", "freebsd", "netbsd", "openbsd":
-		// ioctl(fd, TIOCFLUSH, &TCIFLUSH)
-		flags := int32(1 /* golang.org/x/sys/unix.TCIFLUSH */)
-		syscall.Syscall(
-			54, /* syscall.SYS_IOCTL on darwin, dragonfly, freebsd, netbsd, openbsd */
-			f.Fd(),
-			0x80047410, /* golang.org/x/sys/unix.TIOCFLUSH on darwin, dragonfly, freebsd, netbsd, openbsd */
-			uintptr(unsafe.Pointer(&flags)),
-		)
-	}
-}
+		// syscall.SYS_IOCTL value for runtime.GOOS IN (darwin, dragonfly,
+		// freebsd, netbsd, openbsd).
+		var SYS_IOCTL uintptr = 54
 
-// linuxSYSIOCTL returns syscall.SYS_IOCTL based on runtime.GOARCH.
-func linuxSYSIOCTL() uintptr {
-	switch runtime.GOARCH {
-	case "amd64":
-		return 16 /* syscall.SYS_IOCTL on linux/amd64 */
-	case "arm64", "loong64", "riscv64":
-		return 29 /* syscall.SYS_IOCTL on linux/arm64, linux/loong64, linux/riscv64 */
-	case "mips", "mipsle":
-		return 4054 /* syscall.SYS_IOCTL on linux/mips, linux/mipsle */
-	case "mips64", "mips64le":
-		return 5015 /* syscall.SYS_IOCTL on linux/mips64, linux/mips64le */
-	default:
-		return 54 /* syscall.SYS_IOCTL on other linux architectures */
-	}
-}
+		// golang.org/x/sys/unix.TIOCFLUSH value for runtime.GOOS IN (darwin,
+		// dragonfly, freebsd, netbsd, openbsd).
+		var TIOCFLUSH uintptr = 0x80047410
 
-// linuxSYSIOCTL returns golang.org/x/sys/unix.TCFLSH based on runtime.GOARCH.
-func linuxTCFLSH() uintptr {
-	switch runtime.GOARCH {
-	case "mips", "mips64", "mips64le", "mipsle":
-		return 0x5407 /* golang.org/x/sys/unix.TCFLSH on linux/mips, linux/mips64, linux/mips64le, linux/mipsle */
-	case "ppc", "ppc64", "ppc64le":
-		return 0x2000741f /* golang.org/x/sys/unix.TCFLSH on linux/ppc, linux/ppc64, linux/ppc64le */
-	case "sparc64":
-		return 0x20005407 /* golang.org/x/sys/unix.TCFLSH on linux/sparc64 */
-	default:
-		return 0x540b /* golang.org/x/sys/unix.TCFLSH on other linux architectures */
+		// golang.org/x/sys/unix.TCIFLUSH value for runtime.GOOS IN (darwin,
+		// dragonfly, freebsd, netbsd, openbsd).
+		var TCIFLUSH = 1
+		flags := int32(TCIFLUSH)
+
+		// ioctl(fd, TIOCFLUSH, &flags)
+		syscall.Syscall(SYS_IOCTL, f.Fd(), TIOCFLUSH, uintptr(unsafe.Pointer(&flags)))
 	}
 }
 

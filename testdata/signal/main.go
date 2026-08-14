@@ -12,9 +12,9 @@ var trapSignal = flag.Bool("trap-signal", false, "")
 
 func main() {
 	flag.Parse()
-	fmt.Println("Waiting...")
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	fmt.Println("Waiting...")
 	if *trapSignal {
 		// Block forever until the program is forcefully terminated or until an
 		// interrupt signal is received.

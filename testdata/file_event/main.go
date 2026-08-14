@@ -6,34 +6,40 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
-)
-
-var (
-	_, currfile, _, ok = runtime.Caller(0)
 )
 
 func main() {
-	if !ok {
-		log.Fatal("couldn't get currfile")
+	dir := "."
+	if len(os.Args) > 1 {
+		dir = os.Args[1]
 	}
-	currdir := filepath.Dir(currfile) + string(filepath.Separator)
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		log.Fatal(err)
+	}
 	buf := &bytes.Buffer{}
 	buf.WriteString("---")
-	_ = filepath.WalkDir(currdir, func(path string, d fs.DirEntry, err error) error {
-		if path == currdir {
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == dir {
 			return nil
 		}
 		if d.IsDir() {
 			return nil
 		}
-		buf.WriteString("\n" + filepath.ToSlash(strings.TrimPrefix(path, currdir)))
-		if strings.HasSuffix(path, ".txt") {
+		relpath, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		buf.WriteString("\n" + filepath.ToSlash(relpath))
+		ext := filepath.Ext(path)
+		if ext == ".txt" || ext == ".md" {
 			buf.WriteString(":")
 			b, err := os.ReadFile(path)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			if s := string(bytes.TrimSpace(b)); s != "" {
 				buf.WriteString(" " + s)
@@ -41,6 +47,9 @@ func main() {
 		}
 		return nil
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 	buf.WriteString("\n")
-	buf.WriteTo(os.Stdout)
+	_, _ = buf.WriteTo(os.Stdout)
 }
