@@ -460,7 +460,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &Buffer{}
+		buf := &TestBuffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -481,7 +481,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &Buffer{}
+		buf := &TestBuffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -502,7 +502,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &Buffer{}
+		buf := &TestBuffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -523,7 +523,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &Buffer{}
+		buf := &TestBuffer{}
 		cmd.Stdout = buf
 		err = cmd.Run()
 		if err != nil {
@@ -551,7 +551,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &Buffer{}
+		buf := &TestBuffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -581,7 +581,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &Buffer{}
+		buf := &TestBuffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -603,7 +603,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &Buffer{}
+		buf := &TestBuffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -631,7 +631,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &Buffer{}
+		buf := &TestBuffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -656,7 +656,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &Buffer{}
+		buf := &TestBuffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -681,7 +681,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &Buffer{}
+		buf := &TestBuffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -708,27 +708,45 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buf := &Buffer{}
-	wgoCmd.Stdout = buf
+	testBuffer := NewTestBuffer()
+	wgoCmd.Stdout = testBuffer
 	cmdResult := make(chan error)
 	go func() {
 		cmdResult <- wgoCmd.Run()
 	}()
-	time.Sleep(3 * time.Second)
+	waitForOutput(t, testBuffer, `---
+main.go
+run.bat`)
 
 	log.Println(t.Name(), "add file")
 	err = os.WriteFile("testdata/file_event/foo.txt", []byte("foo"), 0666)
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3 * time.Second)
+	waitForOutput(t, testBuffer, `---
+main.go
+run.bat
+---
+foo.txt: foo
+main.go
+run.bat`)
 
 	log.Println(t.Name(), "edit file")
 	err = os.WriteFile("testdata/file_event/foo.txt", []byte("foo fighters"), 0666)
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3 * time.Second)
+	waitForOutput(t, testBuffer, `---
+main.go
+run.bat
+---
+foo.txt: foo
+main.go
+run.bat
+---
+foo.txt: foo fighters
+main.go
+run.bat`)
 
 	log.Println(t.Name(), "create nested directory")
 	err = os.MkdirAll("testdata/file_event/internal/baz", 0777)
@@ -747,14 +765,30 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3 * time.Second)
+	waitForOutput(t, testBuffer, `---
+main.go
+run.bat
+---
+foo.txt: foo
+main.go
+run.bat
+---
+foo.txt: foo fighters
+main.go
+run.bat
+---
+foo.txt: foo
+internal/bar.txt: bar
+internal/baz/baz.txt: baz
+main.go
+run.bat`)
 
 	cancel()
 	err = <-cmdResult
 	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
-	got := strings.TrimSpace(buf.String())
+	got := strings.TrimSpace(testBuffer.String())
 	want := `---
 main.go
 run.bat
@@ -790,27 +824,39 @@ func TestWgoCmd_Polling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buf := &Buffer{}
-	wgoCmd.Stdout = buf
+	testBuffer := NewTestBuffer()
+	wgoCmd.Stdout = testBuffer
 	cmdResult := make(chan error)
 	go func() {
 		cmdResult <- wgoCmd.Run()
 	}()
-	time.Sleep(3 * time.Second)
+	waitForOutput(t, testBuffer, `---
+main.go`)
 
 	log.Println(t.Name(), "add file")
 	err = os.WriteFile("testdata/polling/foo.txt", []byte("foo"), 0666)
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3 * time.Second)
+	waitForOutput(t, testBuffer, `---
+main.go
+---
+foo.txt: foo
+main.go`)
 
 	log.Println(t.Name(), "edit file")
 	err = os.WriteFile("testdata/polling/foo.txt", []byte("foo fighters"), 0666)
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3 * time.Second)
+	waitForOutput(t, testBuffer, `---
+main.go
+---
+foo.txt: foo
+main.go
+---
+foo.txt: foo fighters
+main.go`)
 
 	log.Println(t.Name(), "create nested directory")
 	err = os.MkdirAll("testdata/polling/internal/baz", 0777)
@@ -829,14 +875,26 @@ func TestWgoCmd_Polling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3 * time.Second)
+	waitForOutput(t, testBuffer, `---
+main.go
+---
+foo.txt: foo
+main.go
+---
+foo.txt: foo fighters
+main.go
+---
+foo.txt: foo
+internal/bar.txt: bar
+internal/baz/baz.txt: baz
+main.go`)
 
 	cancel()
 	err = <-cmdResult
 	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
-	got := strings.TrimSpace(buf.String())
+	got := strings.TrimSpace(testBuffer.String())
 	want := `---
 main.go
 ---
@@ -883,7 +941,7 @@ func TestStdin(t *testing.T) {
 		pipeWriter.Write([]byte("foo\nbar\nbaz\n"))
 		pipeWriter.Close()
 	}()
-	buf := &Buffer{}
+	buf := &TestBuffer{}
 	wgoCmd.Stderr = buf
 	err = wgoCmd.Run()
 	if err != nil {
@@ -949,32 +1007,80 @@ func Diff(got, want any, opts ...cmp.Option) string {
 	return ""
 }
 
-// Buffer is a custom buffer type that is guarded by a sync.RWMutex.
-//
-// Some of the tests (signal on, signal off, timeout on, timeout off) initially
-// wrote to a *bytes.Buffer as their Stdout and the *bytes.Buffer was read from
-// to assert test results. But these tests occasionally failed with data races
-// which caused CI/CD tests to fail and I can't find the cause so I'll just use
-// a blunt hammer and use a goroutine-safe buffer for those tests.
-type Buffer struct {
-	rw  sync.RWMutex
-	buf bytes.Buffer
+// TestBuffer is a custom buffer type that is guarded by a sync.Mutex and
+// everytime it writes it sends a signal down the written channel.
+type TestBuffer struct {
+	Mutex   sync.Mutex
+	Buffer  bytes.Buffer
+	Written chan struct{}
+
+	Changed chan struct{}
 }
 
-func (b *Buffer) Read(p []byte) (n int, err error) {
-	b.rw.RLock()
-	defer b.rw.RUnlock()
-	return b.buf.Read(p)
+func NewTestBuffer() *TestBuffer {
+	return &TestBuffer{
+		Mutex:   sync.Mutex{},
+		Buffer:  bytes.Buffer{},
+		Changed: make(chan struct{}),
+		Written: make(chan struct{}),
+	}
 }
 
-func (b *Buffer) Write(p []byte) (n int, err error) {
-	b.rw.Lock()
-	defer b.rw.Unlock()
-	return b.buf.Write(p)
+func (b *TestBuffer) Read(p []byte) (n int, err error) {
+	b.Mutex.Lock()
+	defer b.Mutex.Unlock()
+	return b.Buffer.Read(p)
 }
 
-func (b *Buffer) String() string {
-	b.rw.Lock()
-	defer b.rw.Unlock()
-	return b.buf.String()
+func (b *TestBuffer) Write(p []byte) (n int, err error) {
+	b.Mutex.Lock()
+	defer b.Mutex.Unlock()
+	n, err = b.Buffer.Write(p)
+	if b.Changed != nil {
+		close(b.Changed)
+		b.Changed = nil
+	}
+	select {
+	case b.Written <- struct{}{}:
+	default:
+	}
+	return n, err
+}
+
+func (b *TestBuffer) String() string {
+	b.Mutex.Lock()
+	defer b.Mutex.Unlock()
+	return b.Buffer.String()
+}
+
+// waitForOutput waits for an external command to produce want. Unlike a fixed
+// sleep, this works whether the preceding go build takes milliseconds or
+// minutes, and it reports the output reached if the command gets stuck.
+func waitForOutput(t *testing.T, buf *TestBuffer, want string) {
+	t.Helper()
+	timer := time.NewTimer(time.Minute)
+	defer timer.Stop()
+	for {
+		buf.Mutex.Lock()
+		got := strings.TrimSpace(buf.Buffer.String())
+		if strings.Contains(got, want) {
+			buf.Mutex.Unlock()
+			return
+		}
+		if buf.Changed == nil {
+			buf.Changed = make(chan struct{})
+		}
+		changed := buf.Changed
+		buf.Mutex.Unlock()
+
+		select {
+		case <-changed:
+		case <-timer.C:
+			got = strings.TrimSpace(buf.String())
+			if strings.Contains(got, want) {
+				return
+			}
+			t.Fatalf("timed out waiting for command output\n\ngot:\n%s\n\nwant output containing:\n%s", got, want)
+		}
+	}
 }
