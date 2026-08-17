@@ -721,26 +721,21 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 		cmdResult <- wgoCmd.Run()
 	}()
 
-	// EXAMPLE 1
 	want := `---
 main.go
 run.bat`
 	timer := time.NewTimer(time.Minute)
-	for {
+	for testBuffer.Len() < len(want) {
 		select {
 		case <-testBuffer.written:
-			if testBuffer.Len() < len(want) {
-				continue
-			}
 		case <-timer.C:
+			t.Fatal("timed out waiting for output")
 		}
-		break
 	}
 	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
 		t.Fatal(diff)
 	}
 
-	// EXAMPLE 2
 	log.Println(t.Name(), "add file")
 	err = os.WriteFile("testdata/file_event/foo.txt", []byte("foo"), 0666)
 	if err != nil {
@@ -754,15 +749,12 @@ foo.txt: foo
 main.go
 run.bat`
 	timer.Reset(time.Minute)
-	for {
+	for testBuffer.Len() < len(want) {
 		select {
 		case <-testBuffer.written:
-			if testBuffer.Len() < len(want) {
-				continue
-			}
 		case <-timer.C:
+			t.Fatal("timed out waiting for output")
 		}
-		break
 	}
 	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
 		t.Fatal(diff)
@@ -773,7 +765,7 @@ run.bat`
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForOutput(t, testBuffer, `---
+	want = `---
 main.go
 run.bat
 ---
@@ -783,7 +775,18 @@ run.bat
 ---
 foo.txt: foo fighters
 main.go
-run.bat`)
+run.bat`
+	timer.Reset(time.Minute)
+	for testBuffer.Len() < len(want) {
+		select {
+		case <-testBuffer.written:
+		case <-timer.C:
+			t.Fatal("timed out waiting for output")
+		}
+	}
+	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+		t.Fatal(diff)
+	}
 
 	log.Println(t.Name(), "create nested directory")
 	err = os.MkdirAll("testdata/file_event/internal/baz", 0777)
@@ -802,7 +805,7 @@ run.bat`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForOutput(t, testBuffer, `---
+	want = `---
 main.go
 run.bat
 ---
@@ -818,7 +821,18 @@ foo.txt: foo
 internal/bar.txt: bar
 internal/baz/baz.txt: baz
 main.go
-run.bat`)
+run.bat`
+	timer.Reset(time.Minute)
+	for testBuffer.Len() < len(want) {
+		select {
+		case <-testBuffer.written:
+		case <-timer.C:
+			t.Fatal("timed out waiting for output")
+		}
+	}
+	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+		t.Fatal(diff)
+	}
 
 	cancel()
 	err = <-cmdResult
@@ -873,33 +887,66 @@ func TestWgoCmd_Polling(t *testing.T) {
 	go func() {
 		cmdResult <- wgoCmd.Run()
 	}()
-	waitForOutput(t, testBuffer, `---
-main.go`)
+	want := `---
+main.go`
+	timer := time.NewTimer(time.Minute)
+	for testBuffer.Len() < len(want) {
+		select {
+		case <-testBuffer.written:
+		case <-timer.C:
+			t.Fatal("timed out waiting for output")
+		}
+	}
+	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+		t.Fatal(diff)
+	}
 
 	log.Println(t.Name(), "add file")
 	err = os.WriteFile("testdata/polling/foo.txt", []byte("foo"), 0666)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForOutput(t, testBuffer, `---
+	want = `---
 main.go
 ---
 foo.txt: foo
-main.go`)
+main.go`
+	timer.Reset(time.Minute)
+	for testBuffer.Len() < len(want) {
+		select {
+		case <-testBuffer.written:
+		case <-timer.C:
+			t.Fatal("timed out waiting for output")
+		}
+	}
+	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+		t.Fatal(diff)
+	}
 
 	log.Println(t.Name(), "edit file")
 	err = os.WriteFile("testdata/polling/foo.txt", []byte("foo fighters"), 0666)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForOutput(t, testBuffer, `---
+	want = `---
 main.go
 ---
 foo.txt: foo
 main.go
 ---
 foo.txt: foo fighters
-main.go`)
+main.go`
+	timer.Reset(time.Minute)
+	for testBuffer.Len() < len(want) {
+		select {
+		case <-testBuffer.written:
+		case <-timer.C:
+			t.Fatal("timed out waiting for output")
+		}
+	}
+	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+		t.Fatal(diff)
+	}
 
 	log.Println(t.Name(), "create nested directory")
 	err = os.MkdirAll("testdata/polling/internal/baz", 0777)
@@ -918,7 +965,7 @@ main.go`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForOutput(t, testBuffer, `---
+	want = `---
 main.go
 ---
 foo.txt: foo
@@ -930,7 +977,18 @@ main.go
 foo.txt: foo
 internal/bar.txt: bar
 internal/baz/baz.txt: baz
-main.go`)
+main.go`
+	timer.Reset(time.Minute)
+	for testBuffer.Len() < len(want) {
+		select {
+		case <-testBuffer.written:
+		case <-timer.C:
+			t.Fatal("timed out waiting for output")
+		}
+	}
+	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+		t.Fatal(diff)
+	}
 
 	cancel()
 	err = <-cmdResult
@@ -938,7 +996,7 @@ main.go`)
 		t.Fatal(err)
 	}
 	got := strings.TrimSpace(testBuffer.String())
-	want := `---
+	want = `---
 main.go
 ---
 foo.txt: foo
@@ -1056,16 +1114,13 @@ type TestBuffer struct {
 	mutex   sync.Mutex
 	buffer  bytes.Buffer
 	written chan struct{}
-
-	Changed chan struct{}
 }
 
 func NewTestBuffer() *TestBuffer {
 	return &TestBuffer{
 		mutex:   sync.Mutex{},
 		buffer:  bytes.Buffer{},
-		Changed: make(chan struct{}),
-		written: make(chan struct{}),
+		written: make(chan struct{}, 1),
 	}
 }
 
@@ -1079,10 +1134,6 @@ func (b *TestBuffer) Write(p []byte) (n int, err error) {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	n, err = b.buffer.Write(p)
-	if b.Changed != nil {
-		close(b.Changed)
-		b.Changed = nil
-	}
 	select {
 	case b.written <- struct{}{}:
 	default:
@@ -1100,36 +1151,4 @@ func (b *TestBuffer) String() string {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	return b.buffer.String()
-}
-
-// waitForOutput waits for an external command to produce want. Unlike a fixed
-// sleep, this works whether the preceding go build takes milliseconds or
-// minutes, and it reports the output reached if the command gets stuck.
-func waitForOutput(t *testing.T, buf *TestBuffer, want string) {
-	t.Helper()
-	timer := time.NewTimer(time.Minute)
-	defer timer.Stop()
-	for {
-		buf.mutex.Lock()
-		got := strings.TrimSpace(buf.buffer.String())
-		if strings.Contains(got, want) {
-			buf.mutex.Unlock()
-			return
-		}
-		if buf.Changed == nil {
-			buf.Changed = make(chan struct{})
-		}
-		changed := buf.Changed
-		buf.mutex.Unlock()
-
-		select {
-		case <-changed:
-		case <-timer.C:
-			got = strings.TrimSpace(buf.String())
-			if strings.Contains(got, want) {
-				return
-			}
-			t.Fatalf("timed out waiting for command output\n\ngot:\n%s\n\nwant output containing:\n%s", got, want)
-		}
-	}
 }
