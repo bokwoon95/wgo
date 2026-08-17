@@ -701,10 +701,16 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 	os.RemoveAll("testdata/file_event/internal")
 	defer os.RemoveAll("testdata/file_event/foo.txt")
 	defer os.RemoveAll("testdata/file_event/internal")
+	executablePath := filepath.Join(os.TempDir(), t.Name()+".exe")
+	err := exec.Command("go", "build", "-o", executablePath, "./testdata/file_event").Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(executablePath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	wgoCmd, err := WgoCommand(ctx, 0, []string{"run", "-dir", "testdata/file_event", "-file", ".txt", "./testdata/file_event"})
+	wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", "testdata/file_event", "-file", ".txt", executablePath})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -714,22 +720,53 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 	go func() {
 		cmdResult <- wgoCmd.Run()
 	}()
-	waitForOutput(t, testBuffer, `---
-main.go
-run.bat`)
 
+	// EXAMPLE 1
+	want := `---
+main.go
+run.bat`
+	timer := time.NewTimer(time.Minute)
+	for {
+		select {
+		case <-testBuffer.written:
+			if testBuffer.Len() < len(want) {
+				continue
+			}
+		case <-timer.C:
+		}
+		break
+	}
+	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+		t.Fatal(diff)
+	}
+
+	// EXAMPLE 2
 	log.Println(t.Name(), "add file")
 	err = os.WriteFile("testdata/file_event/foo.txt", []byte("foo"), 0666)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForOutput(t, testBuffer, `---
+	want = `---
 main.go
 run.bat
 ---
 foo.txt: foo
 main.go
-run.bat`)
+run.bat`
+	timer.Reset(time.Minute)
+	for {
+		select {
+		case <-testBuffer.written:
+			if testBuffer.Len() < len(want) {
+				continue
+			}
+		case <-timer.C:
+		}
+		break
+	}
+	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+		t.Fatal(diff)
+	}
 
 	log.Println(t.Name(), "edit file")
 	err = os.WriteFile("testdata/file_event/foo.txt", []byte("foo fighters"), 0666)
@@ -789,7 +826,7 @@ run.bat`)
 		t.Fatal(err)
 	}
 	got := strings.TrimSpace(testBuffer.String())
-	want := `---
+	want = `---
 main.go
 run.bat
 ---
@@ -817,10 +854,16 @@ func TestWgoCmd_Polling(t *testing.T) {
 	os.RemoveAll("testdata/polling/internal")
 	defer os.RemoveAll("testdata/polling/foo.txt")
 	defer os.RemoveAll("testdata/polling/internal")
+	executablePath := filepath.Join(os.TempDir(), t.Name()+".exe")
+	err := exec.Command("go", "build", "-o", executablePath, "./testdata/polling").Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(executablePath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	wgoCmd, err := WgoCommand(ctx, 0, []string{"run", "-dir", "testdata/polling", "-file", ".txt", "-poll", "100ms", "./testdata/polling"})
+	wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", "testdata/polling", "-file", ".txt", "-poll", "100ms", executablePath})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1010,47 +1053,53 @@ func Diff(got, want any, opts ...cmp.Option) string {
 // TestBuffer is a custom buffer type that is guarded by a sync.Mutex and
 // everytime it writes it sends a signal down the written channel.
 type TestBuffer struct {
-	Mutex   sync.Mutex
-	Buffer  bytes.Buffer
-	Written chan struct{}
+	mutex   sync.Mutex
+	buffer  bytes.Buffer
+	written chan struct{}
 
 	Changed chan struct{}
 }
 
 func NewTestBuffer() *TestBuffer {
 	return &TestBuffer{
-		Mutex:   sync.Mutex{},
-		Buffer:  bytes.Buffer{},
+		mutex:   sync.Mutex{},
+		buffer:  bytes.Buffer{},
 		Changed: make(chan struct{}),
-		Written: make(chan struct{}),
+		written: make(chan struct{}),
 	}
 }
 
 func (b *TestBuffer) Read(p []byte) (n int, err error) {
-	b.Mutex.Lock()
-	defer b.Mutex.Unlock()
-	return b.Buffer.Read(p)
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	return b.buffer.Read(p)
 }
 
 func (b *TestBuffer) Write(p []byte) (n int, err error) {
-	b.Mutex.Lock()
-	defer b.Mutex.Unlock()
-	n, err = b.Buffer.Write(p)
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	n, err = b.buffer.Write(p)
 	if b.Changed != nil {
 		close(b.Changed)
 		b.Changed = nil
 	}
 	select {
-	case b.Written <- struct{}{}:
+	case b.written <- struct{}{}:
 	default:
 	}
 	return n, err
 }
 
+func (b *TestBuffer) Len() int {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	return b.buffer.Len()
+}
+
 func (b *TestBuffer) String() string {
-	b.Mutex.Lock()
-	defer b.Mutex.Unlock()
-	return b.Buffer.String()
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	return b.buffer.String()
 }
 
 // waitForOutput waits for an external command to produce want. Unlike a fixed
@@ -1061,17 +1110,17 @@ func waitForOutput(t *testing.T, buf *TestBuffer, want string) {
 	timer := time.NewTimer(time.Minute)
 	defer timer.Stop()
 	for {
-		buf.Mutex.Lock()
-		got := strings.TrimSpace(buf.Buffer.String())
+		buf.mutex.Lock()
+		got := strings.TrimSpace(buf.buffer.String())
 		if strings.Contains(got, want) {
-			buf.Mutex.Unlock()
+			buf.mutex.Unlock()
 			return
 		}
 		if buf.Changed == nil {
 			buf.Changed = make(chan struct{})
 		}
 		changed := buf.Changed
-		buf.Mutex.Unlock()
+		buf.mutex.Unlock()
 
 		select {
 		case <-changed:
