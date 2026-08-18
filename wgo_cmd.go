@@ -393,36 +393,36 @@ func (wgoCmd *WgoCmd) Run() error {
 	if err != nil {
 		return err
 	}
-	// events channel will receive events either from the watcher or from
+	// fileEvents channel will receive fileEvents either from the watcher or from
 	// polling.
 	//
 	// I would really prefer to use the watcher.Events channel directly instead
 	// of creating an intermediary channel that aggregates from both sources,
 	// but for some reason that will set off the race detector during tests so
 	// I have to use a separate channel :(.
-	events := make(chan FileEvent)
+	fileEvents := make(chan FileEvent)
 	go func() {
 		for {
 			event := <-watcher.Events
-			events <- FileEvent{Event: event}
+			fileEvents <- FileEvent{Event: event}
 		}
 	}()
 	defer watcher.Close()
 	dirSet := make(map[string]struct{})
-	var pollers []func()
+	var pollFuncs []func()
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
-			poll := wgoCmd.pollDirectory(wgoCmd.ctx, root, events)
-			if poll != nil {
-				pollers = append(pollers, poll)
+			pollFunc := wgoCmd.pollDirectoryFunc(wgoCmd.ctx, root, fileEvents)
+			if pollFunc != nil {
+				pollFuncs = append(pollFuncs, pollFunc)
 			}
 			wgoCmd.Logger.Println("POLL", filepath.ToSlash(root))
 		} else {
 			wgoCmd.addDirsRecursively(watcher, root, dirSet)
 		}
 	}
-	for _, poll := range pollers {
-		go poll()
+	for _, pollFunc := range pollFuncs {
+		go pollFunc()
 	}
 	// Timer is used to debounce events. Each event does not directly trigger a
 	// reload, it only resets the timer. Only when the timer is allowed to
@@ -461,43 +461,42 @@ func (wgoCmd *WgoCmd) Run() error {
 	for restartCount := 0; ; restartCount++ {
 	CMD_CHAIN:
 		for i, args := range wgoCmd.ArgsList {
+			// TODO: can we achieve this some other way?
 			if restartCount == 0 && wgoCmd.Postpone {
 				for {
 					select {
 					case <-wgoCmd.ctx.Done():
 						return nil
-					case event := <-events:
-						if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
+					case fileEvent := <-fileEvents:
+						if !fileEvent.Has(fsnotify.Create) && !fileEvent.Has(fsnotify.Write) && !fileEvent.Has(fsnotify.Remove) && !fileEvent.Has(fsnotify.Rename) {
 							continue
 						}
 						if wgoCmd.PollDuration == 0 {
-							if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
-								_, event.IsDir = dirSet[event.Name]
+							if fileEvent.Has(fsnotify.Remove) || fileEvent.Has(fsnotify.Rename) {
+								_, fileEvent.IsDir = dirSet[fileEvent.Name]
 							} else {
-								fileinfo, err := os.Stat(event.Name)
+								fileinfo, err := os.Stat(fileEvent.Name)
 								if err != nil {
 									continue
 								}
-								event.IsDir = fileinfo.IsDir()
-								if event.IsDir {
-									dirSet[event.Name] = struct{}{}
+								fileEvent.IsDir = fileinfo.IsDir()
+								if fileEvent.IsDir {
+									dirSet[fileEvent.Name] = struct{}{}
+									if fileEvent.Has(fsnotify.Create) {
+										wgoCmd.addDirsRecursively(watcher, fileEvent.Name, dirSet)
+									}
 								} else {
-									delete(dirSet, event.Name)
+									delete(dirSet, fileEvent.Name)
 								}
 							}
 						}
-						if event.IsDir {
-							if event.Has(fsnotify.Create) && wgoCmd.PollDuration == 0 {
-								wgoCmd.addDirsRecursively(watcher, event.Name, dirSet)
-							}
-						}
-						if wgoCmd.match(event.Op.String(), event.Name, event.IsDir) {
+						if wgoCmd.match(fileEvent.Op.String(), fileEvent.Name, fileEvent.IsDir) {
 							timer.Reset(wgoCmd.Debounce)
 						}
-						if event.IsDir && (event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)) && wgoCmd.PollDuration == 0 {
-							delete(dirSet, event.Name)
+						if fileEvent.IsDir && (fileEvent.Has(fsnotify.Remove) || fileEvent.Has(fsnotify.Rename)) && wgoCmd.PollDuration == 0 {
+							delete(dirSet, fileEvent.Name)
 							for dir := range dirSet {
-								if strings.HasPrefix(dir, event.Name+string(filepath.Separator)) {
+								if strings.HasPrefix(dir, fileEvent.Name+string(filepath.Separator)) {
 									delete(dirSet, dir)
 								}
 							}
@@ -598,7 +597,7 @@ func (wgoCmd *WgoCmd) Run() error {
 						break
 					}
 					continue CMD_CHAIN
-				case event := <-events:
+				case event := <-fileEvents:
 					// Only permit Create, Write, Remove and Rename. Ignore
 					// everything else.
 					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
@@ -864,27 +863,28 @@ func (wgoCmd *WgoCmd) match(op string, path string, isDir bool) bool {
 	return false
 }
 
-// pollDirectory takes an initial snapshot of a directory and returns a
+// pollDirectoryFunc takes an initial snapshot of a directory and returns a
 // function that polls it recursively for changes.
-func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events chan<- FileEvent) func() {
-	type DirItem struct {
-		cancel func()
-		isDir  bool
+func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events chan<- FileEvent) func() {
+	type WatchedItem struct {
+		Name   string
+		IsDir  bool
+		Cancel func()
 	}
 
 	// dirItems maps names to their goroutine-cancelling functions and types.
-	dirItems := make(map[string]DirItem)
+	dirItems := make(map[string]WatchedItem)
 
 	dirEntries, err := os.ReadDir(path)
 	if err != nil {
 		wgoCmd.Logger.Println(err)
 		return nil
 	}
-	var pollers []func()
+	var pollFuncs []func()
 	for _, dirEntry := range dirEntries {
 		name := dirEntry.Name()
 		ctx, cancel := context.WithCancel(ctx)
-		dirItems[name] = DirItem{cancel: cancel, isDir: dirEntry.IsDir()}
+		dirItems[name] = WatchedItem{Cancel: cancel, IsDir: dirEntry.IsDir()}
 		if dirEntry.IsDir() {
 			match := func() bool {
 				dir := filepath.Join(path, name)
@@ -918,15 +918,15 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 				return true
 			}()
 			if match {
-				poll := wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events)
+				poll := wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events)
 				if poll != nil {
-					pollers = append(pollers, poll)
+					pollFuncs = append(pollFuncs, poll)
 				}
 			}
 		} else {
 			poll := wgoCmd.pollFile(ctx, filepath.Join(path, name), events)
 			if poll != nil {
-				pollers = append(pollers, poll)
+				pollFuncs = append(pollFuncs, poll)
 			}
 		}
 	}
@@ -936,11 +936,11 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 		var wg sync.WaitGroup
 		defer func() {
 			for _, item := range dirItems {
-				item.cancel()
+				item.Cancel()
 			}
 			wg.Wait()
 		}()
-		for _, poll := range pollers {
+		for _, poll := range pollFuncs {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -974,9 +974,9 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 					continue
 				}
 				ctx, cancel := context.WithCancel(ctx)
-				dirItems[name] = DirItem{cancel: cancel, isDir: dirEntry.IsDir()}
+				dirItems[name] = WatchedItem{Cancel: cancel, IsDir: dirEntry.IsDir()}
 				if dirEntry.IsDir() {
-					poll := wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events)
+					poll := wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events)
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
@@ -1000,9 +1000,9 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 			// For names that no longer exist, cancel their goroutines.
 			for name, item := range dirItems {
 				if !seen[name] {
-					item.cancel()
+					item.Cancel()
 					delete(dirItems, name)
-					events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: item.isDir}
+					events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: item.IsDir}
 				}
 			}
 		}
