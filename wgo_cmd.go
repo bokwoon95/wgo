@@ -918,7 +918,7 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 				pollFuncs = append(pollFuncs, wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events))
 			}
 		} else {
-			pollFuncs = append(pollFuncs, wgoCmd.pollFile(ctx, filepath.Join(path, name), events))
+			pollFuncs = append(pollFuncs, wgoCmd.pollFileFunc(ctx, filepath.Join(path, name), events))
 		}
 	}
 
@@ -977,7 +977,7 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
-						wgoCmd.pollFile(ctx, filepath.Join(path, name), events)()
+						wgoCmd.pollFileFunc(ctx, filepath.Join(path, name), events)()
 					}()
 				}
 			}
@@ -993,9 +993,9 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 	}
 }
 
-// pollFile takes an initial snapshot of a file and returns a function that
+// pollFileFunc takes an initial snapshot of a file and returns a function that
 // polls it for changes.
-func (wgoCmd *WgoCmd) pollFile(ctx context.Context, path string, events chan<- FileEvent) func() {
+func (wgoCmd *WgoCmd) pollFileFunc(ctx context.Context, path string, events chan<- FileEvent) func() {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return func() {}
