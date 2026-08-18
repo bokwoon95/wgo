@@ -412,10 +412,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	var pollFuncs []func()
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
-			pollFunc := wgoCmd.pollDirectoryFunc(wgoCmd.ctx, root, fileEvents)
-			if pollFunc != nil {
-				pollFuncs = append(pollFuncs, pollFunc)
-			}
+			pollFuncs = append(pollFuncs, wgoCmd.pollDirectoryFunc(wgoCmd.ctx, root, fileEvents))
 			wgoCmd.Logger.Println("POLL", filepath.ToSlash(root))
 		} else {
 			wgoCmd.addDirsRecursively(watcher, root, dirSet)
@@ -474,6 +471,14 @@ func (wgoCmd *WgoCmd) Run() error {
 						if wgoCmd.PollDuration == 0 {
 							if fileEvent.Has(fsnotify.Remove) || fileEvent.Has(fsnotify.Rename) {
 								_, fileEvent.IsDir = dirSet[fileEvent.Name]
+								if fileEvent.IsDir {
+									delete(dirSet, fileEvent.Name)
+									for dir := range dirSet {
+										if strings.HasPrefix(dir, fileEvent.Name+string(filepath.Separator)) {
+											delete(dirSet, dir)
+										}
+									}
+								}
 							} else {
 								fileinfo, err := os.Stat(fileEvent.Name)
 								if err != nil {
@@ -492,14 +497,6 @@ func (wgoCmd *WgoCmd) Run() error {
 						}
 						if wgoCmd.match(fileEvent.Op.String(), fileEvent.Name, fileEvent.IsDir) {
 							timer.Reset(wgoCmd.Debounce)
-						}
-						if fileEvent.IsDir && (fileEvent.Has(fsnotify.Remove) || fileEvent.Has(fsnotify.Rename)) && wgoCmd.PollDuration == 0 {
-							delete(dirSet, fileEvent.Name)
-							for dir := range dirSet {
-								if strings.HasPrefix(dir, fileEvent.Name+string(filepath.Separator)) {
-									delete(dirSet, dir)
-								}
-							}
 						}
 					case <-timer.C:
 						if wgoCmd.EnableStdin {
@@ -878,7 +875,7 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 	dirEntries, err := os.ReadDir(path)
 	if err != nil {
 		wgoCmd.Logger.Println(err)
-		return nil
+		return func() {}
 	}
 	var pollFuncs []func()
 	for _, dirEntry := range dirEntries {
@@ -918,16 +915,10 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 				return true
 			}()
 			if match {
-				poll := wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events)
-				if poll != nil {
-					pollFuncs = append(pollFuncs, poll)
-				}
+				pollFuncs = append(pollFuncs, wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events))
 			}
 		} else {
-			poll := wgoCmd.pollFile(ctx, filepath.Join(path, name), events)
-			if poll != nil {
-				pollFuncs = append(pollFuncs, poll)
-			}
+			pollFuncs = append(pollFuncs, wgoCmd.pollFile(ctx, filepath.Join(path, name), events))
 		}
 	}
 
@@ -975,25 +966,18 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 				}
 				ctx, cancel := context.WithCancel(ctx)
 				dirItems[name] = WatchedItem{Cancel: cancel, IsDir: dirEntry.IsDir()}
+				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}, IsDir: true}
 				if dirEntry.IsDir() {
-					poll := wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events)
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
-						events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}, IsDir: true}
-						if poll != nil {
-							poll()
-						}
+						wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events)()
 					}()
 				} else {
-					poll := wgoCmd.pollFile(ctx, filepath.Join(path, name), events)
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
-						events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}}
-						if poll != nil {
-							poll()
-						}
+						wgoCmd.pollFile(ctx, filepath.Join(path, name), events)()
 					}()
 				}
 			}
@@ -1014,7 +998,7 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 func (wgoCmd *WgoCmd) pollFile(ctx context.Context, path string, events chan<- FileEvent) func() {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
-		return nil
+		return func() {}
 	}
 	oldModTime := fileInfo.ModTime()
 	oldSize := fileInfo.Size()
