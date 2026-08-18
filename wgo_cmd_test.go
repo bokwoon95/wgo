@@ -99,6 +99,7 @@ func TestWgoCmd_match(t *testing.T) {
 		roots       []string
 		args        []string
 		path        string
+		isDir       bool
 		want        bool
 	}
 
@@ -169,6 +170,30 @@ func TestWgoCmd_match(t *testing.T) {
 		args:        []string{},
 		path:        "/Documents/index.rb",
 		want:        true,
+	}, {
+		description: "directory uses -dir and ignores -file",
+		args:        []string{"-dir", "testdata/dir", "-xfile", "dir"},
+		path:        "testdata/dir",
+		isDir:       true,
+		want:        true,
+	}, {
+		description: "directory excluded by -xdir",
+		args:        []string{"-xdir", "testdata/dir"},
+		path:        "testdata/dir",
+		isDir:       true,
+		want:        false,
+	}, {
+		description: "default excluded directory",
+		args:        []string{},
+		path:        "testdata/node_modules",
+		isDir:       true,
+		want:        false,
+	}, {
+		description: "explicitly included default excluded directory",
+		args:        []string{"-dir", "node_modules"},
+		path:        "testdata/node_modules",
+		isDir:       true,
+		want:        true,
 	}}
 
 	for _, tt := range tests {
@@ -191,7 +216,7 @@ func TestWgoCmd_match(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := wgoCmd.match("", path)
+			got := wgoCmd.match("", path, tt.isDir)
 			if !got && tt.want {
 				t.Errorf("%v failed to match %q", tt.args, tt.path)
 			} else if got && !tt.want {
@@ -288,7 +313,8 @@ func TestWgoCmd_addDirsRecursively(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			wgoCmd.addDirsRecursively(watcher, dir)
+			dirSet := make(map[string]struct{})
+			wgoCmd.addDirsRecursively(watcher, dir, dirSet)
 			gotWatched := watcher.WatchList()
 			sort.Strings(gotWatched)
 			sort.Strings(tt.wantWatched)
@@ -296,6 +322,85 @@ func TestWgoCmd_addDirsRecursively(t *testing.T) {
 				t.Error(diff)
 			}
 		})
+	}
+}
+
+func TestWgoCmd_pollDirectory(t *testing.T) {
+	t.Parallel()
+
+	testDir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	wgoCmd := &WgoCmd{
+		Roots:        []string{testDir},
+		Logger:       defaultLogger,
+		PollDuration: 10 * time.Millisecond,
+	}
+	events := make(chan FileEvent, 16)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		wgoCmd.pollDirectory(ctx, testDir, events)
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	filePath := filepath.Join(testDir, "file.txt")
+	dirPath := filepath.Join(testDir, "dir")
+	if err := os.WriteFile(filePath, []byte("file"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dirPath, 0777); err != nil {
+		t.Fatal(err)
+	}
+
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	created := make(map[string]bool)
+	for len(created) < 2 {
+		select {
+		case event := <-events:
+			if event.Has(fsnotify.Create) {
+				created[event.Name] = event.IsDir
+			}
+		case <-timer.C:
+			t.Fatal("timed out waiting for create events")
+		}
+	}
+	if created[filePath] {
+		t.Errorf("file create event marked as directory")
+	}
+	if !created[dirPath] {
+		t.Errorf("directory create event marked as file")
+	}
+
+	if err := os.Remove(filePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dirPath); err != nil {
+		t.Fatal(err)
+	}
+	removed := make(map[string]bool)
+	for len(removed) < 2 {
+		select {
+		case event := <-events:
+			if event.Has(fsnotify.Remove) {
+				removed[event.Name] = event.IsDir
+			}
+		case <-timer.C:
+			t.Fatal("timed out waiting for remove events")
+		}
+	}
+	if removed[filePath] {
+		t.Errorf("file remove event marked as directory")
+	}
+	if !removed[dirPath] {
+		t.Errorf("directory remove event marked as file")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-timer.C:
+		t.Fatal("timed out waiting for poller to stop")
 	}
 }
 
@@ -653,7 +758,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		wgoCmd, err := WgoCommand(ctx, 0, []string{
-			"-xfile", ".", "echo", "hello",
+			"-xdir", ".", "-xfile", ".", "echo", "hello",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -678,7 +783,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		wgoCmd, err := WgoCommand(ctx, 0, []string{
-			"-xfile", ".", "-postpone", "echo", "hello",
+			"-xdir", ".", "-xfile", ".", "-postpone", "echo", "hello",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -946,6 +1051,89 @@ static/keep.md: keep`
 			t.Fatal(err)
 		}
 	})
+
+	for _, tt := range []struct {
+		name   string
+		poll   bool
+		rename bool
+	}{
+		{name: "remove file"},
+		{name: "rename file", rename: true},
+		{name: "poll remove file", poll: true},
+		{name: "poll rename file", poll: true, rename: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			testDir := filepath.Join("testdata", "file_event", t.Name())
+			initTestDir(t, testDir, fstest.MapFS{
+				"keep.md":    {Data: []byte("keep")},
+				"target.txt": {Data: []byte("target")},
+			})
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			args := []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt"}
+			if tt.poll {
+				args = append(args, "-poll", "100ms")
+			}
+			args = append(args, executablePath, testDir)
+			wgoCmd, err := WgoCommand(ctx, 0, args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdoutBuffer := &TestBuffer{
+				written: make(chan struct{}, 1),
+			}
+			wgoCmd.Stdout = stdoutBuffer
+			cmdResult := make(chan error, 1)
+			go func() {
+				cmdResult <- wgoCmd.Run()
+			}()
+
+			timer := time.NewTimer(time.Minute)
+			defer timer.Stop()
+			select {
+			case <-stdoutBuffer.written:
+			case err := <-cmdResult:
+				t.Fatalf("command exited before producing initial output: %v", err)
+			case <-timer.C:
+				t.Fatal("timed out waiting for initial output")
+			}
+
+			if tt.rename {
+				err = os.Rename(filepath.Join(testDir, "target.txt"), filepath.Join(testDir, "target.md"))
+			} else {
+				err = os.Remove(filepath.Join(testDir, "target.txt"))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			want := "---\nkeep.md: keep\ntarget.txt: target\n---\nkeep.md: keep"
+			if tt.rename {
+				want += "\ntarget.md: target"
+			}
+			for stdoutBuffer.Len() < len(want) {
+				select {
+				case <-stdoutBuffer.written:
+				case err := <-cmdResult:
+					t.Fatalf("command exited before producing expected output: %v", err)
+				case <-timer.C:
+					t.Fatal("timed out waiting for output")
+				}
+			}
+			if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+				t.Fatal(diff)
+			}
+
+			cancel()
+			err = <-cmdResult
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Fatal(err)
+			}
+		})
+	}
 }
 
 func TestWgoCmd_Polling(t *testing.T) {
