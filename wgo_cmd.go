@@ -460,7 +460,8 @@ func (wgoCmd *WgoCmd) Run() error {
 	for restartCount := 0; ; restartCount++ {
 	CMD_CHAIN:
 		for i, args := range wgoCmd.ArgsList {
-			// TODO: can we achieve this some other way?
+			// TODO: can we achieve Postpone cleanly without duplicating the
+			// for select block and without too much fiddly code?
 			if restartCount == 0 && wgoCmd.Postpone {
 				for {
 					select {
