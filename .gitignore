@@ -2,3 +2,5 @@ coverage
 .idea/
 testdata/hello_world/timeout_on
 testdata/hello_world/timeout_off
+testdata/file_event/TestWgoCmd_FileEvent
+testdata/polling/TestWgoCmd_Polling
