@@ -457,61 +457,85 @@ func (wgoCmd *WgoCmd) Run() error {
 		}()
 	}
 
-	for restartCount := 0; ; restartCount++ {
-	CMD_CHAIN:
-		for i, args := range wgoCmd.ArgsList {
-			// TODO: can we achieve Postpone cleanly without duplicating the
-			// for select block and without too much fiddly code?
-			if restartCount == 0 && wgoCmd.Postpone {
-				for {
-					select {
-					case <-wgoCmd.ctx.Done():
-						return nil
-					case fileEvent := <-fileEvents:
-						if !fileEvent.Has(fsnotify.Create) && !fileEvent.Has(fsnotify.Write) && !fileEvent.Has(fsnotify.Remove) && !fileEvent.Has(fsnotify.Rename) {
+	// Convert file events into debounced reload signals. Keeping the watcher
+	// bookkeeping here means postponed and running commands handle file events
+	// identically.
+	reloads := make(chan struct{})
+	eventLoopCtx, cancelEventLoop := context.WithCancel(wgoCmd.ctx)
+	eventLoopDone := make(chan struct{})
+	go func() {
+		defer close(eventLoopDone)
+		for {
+			select {
+			case <-eventLoopCtx.Done():
+				return
+			case event := <-fileEvents:
+				// Only permit Create, Write, Remove and Rename. Ignore
+				// everything else.
+				if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
+					continue
+				}
+				if wgoCmd.PollDuration == 0 {
+					if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
+						_, event.IsDir = dirSet[event.Name]
+					} else {
+						fileinfo, err := os.Stat(event.Name)
+						if err != nil {
 							continue
 						}
-						if wgoCmd.PollDuration == 0 {
-							if fileEvent.Has(fsnotify.Remove) || fileEvent.Has(fsnotify.Rename) {
-								_, fileEvent.IsDir = dirSet[fileEvent.Name]
-								if fileEvent.IsDir {
-									delete(dirSet, fileEvent.Name)
-									for dir := range dirSet {
-										if strings.HasPrefix(dir, fileEvent.Name+string(filepath.Separator)) {
-											delete(dirSet, dir)
-										}
-									}
-								}
-							} else {
-								fileinfo, err := os.Stat(fileEvent.Name)
-								if err != nil {
-									continue
-								}
-								fileEvent.IsDir = fileinfo.IsDir()
-								if fileEvent.IsDir {
-									dirSet[fileEvent.Name] = struct{}{}
-									if fileEvent.Has(fsnotify.Create) {
-										wgoCmd.addDirsRecursively(watcher, fileEvent.Name, dirSet)
-									}
-								} else {
-									delete(dirSet, fileEvent.Name)
-								}
-							}
+						event.IsDir = fileinfo.IsDir()
+						if event.IsDir {
+							dirSet[event.Name] = struct{}{}
+						} else {
+							delete(dirSet, event.Name)
 						}
-						if wgoCmd.match(fileEvent.Op.String(), fileEvent.Name, fileEvent.IsDir) {
-							timer.Reset(wgoCmd.Debounce)
-						}
-					case <-timer.C:
-						if wgoCmd.EnableStdin {
-							stdinPipeMutex.Lock()
-							stdinPipe = nil
-							stdinPipeMutex.Unlock()
-							flushStdin(wgoCmd.Stdin)
-						}
-						break CMD_CHAIN
 					}
 				}
+				if event.IsDir && event.Has(fsnotify.Create) && wgoCmd.PollDuration == 0 {
+					wgoCmd.addDirsRecursively(watcher, event.Name, dirSet)
+				}
+				if wgoCmd.match(event.Op.String(), event.Name, event.IsDir) {
+					timer.Reset(wgoCmd.Debounce)
+				}
+				if event.IsDir && (event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)) && wgoCmd.PollDuration == 0 {
+					delete(dirSet, event.Name)
+					for dir := range dirSet {
+						if strings.HasPrefix(dir, event.Name+string(filepath.Separator)) {
+							delete(dirSet, dir)
+						}
+					}
+				}
+			case <-timer.C:
+				if wgoCmd.EnableStdin {
+					stdinPipeMutex.Lock()
+					stdinPipe = nil
+					stdinPipeMutex.Unlock()
+					flushStdin(wgoCmd.Stdin)
+				}
+				select {
+				case reloads <- struct{}{}:
+				case <-eventLoopCtx.Done():
+					return
+				}
 			}
+		}
+	}()
+	defer func() {
+		cancelEventLoop()
+		<-eventLoopDone
+	}()
+
+	if wgoCmd.Postpone {
+		select {
+		case <-wgoCmd.ctx.Done():
+			return nil
+		case <-reloads:
+		}
+	}
+
+	for {
+	CMD_CHAIN:
+		for i, args := range wgoCmd.ArgsList {
 			// Step 1: Prepare the command.
 			//
 			// We are not using exec.CommandContext() because it uses
@@ -597,51 +621,7 @@ func (wgoCmd *WgoCmd) Run() error {
 						break
 					}
 					continue CMD_CHAIN
-				case event := <-fileEvents:
-					// Only permit Create, Write, Remove and Rename. Ignore
-					// everything else.
-					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
-						continue
-					}
-					if wgoCmd.PollDuration == 0 {
-						if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
-							_, event.IsDir = dirSet[event.Name]
-						} else {
-							fileinfo, err := os.Stat(event.Name)
-							if err != nil {
-								continue
-							}
-							event.IsDir = fileinfo.IsDir()
-							if event.IsDir {
-								dirSet[event.Name] = struct{}{}
-							} else {
-								delete(dirSet, event.Name)
-							}
-						}
-					}
-					if event.IsDir {
-						if event.Has(fsnotify.Create) && wgoCmd.PollDuration == 0 {
-							wgoCmd.addDirsRecursively(watcher, event.Name, dirSet)
-						}
-					}
-					if wgoCmd.match(event.Op.String(), event.Name, event.IsDir) {
-						timer.Reset(wgoCmd.Debounce) // Start the timer.
-					}
-					if event.IsDir && (event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)) && wgoCmd.PollDuration == 0 {
-						delete(dirSet, event.Name)
-						for dir := range dirSet {
-							if strings.HasPrefix(dir, event.Name+string(filepath.Separator)) {
-								delete(dirSet, dir)
-							}
-						}
-					}
-				case <-timer.C: // Timer expired, reload commands.
-					if wgoCmd.EnableStdin {
-						stdinPipeMutex.Lock()
-						stdinPipe = nil
-						stdinPipeMutex.Unlock()
-						flushStdin(wgoCmd.Stdin)
-					}
+				case <-reloads:
 					stop(cmd)
 					<-waitDone
 					break CMD_CHAIN
