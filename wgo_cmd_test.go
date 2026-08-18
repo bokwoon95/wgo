@@ -701,24 +701,84 @@ func TestWgoCmd_Run(t *testing.T) {
 
 	t.Run("postpone on", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		testDir := t.TempDir()
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		wgoCmd, err := WgoCommand(ctx, 0, []string{
-			"-xdir", ".", "-xfile", ".", "-postpone", "echo", "hello",
+			"-file", ".txt", "-postpone", "echo", "hello",
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &TestBuffer{}
-		wgoCmd.Stdout = buf
-		err = wgoCmd.Run()
+		wgoCmd.Roots[0] = testDir
+		loggerBuffer := &TestBuffer{
+			written: make(chan struct{}, 1),
+		}
+		wgoCmd.Logger = log.New(loggerBuffer, "", 0)
+		stdoutBuffer := &TestBuffer{
+			written: make(chan struct{}, 1),
+		}
+		wgoCmd.Stdout = stdoutBuffer
+		cmdResult := make(chan error, 1)
+		go func() {
+			cmdResult <- wgoCmd.Run()
+		}()
+
+		timer := time.NewTimer(time.Minute)
+		defer timer.Stop()
+		for !strings.Contains(loggerBuffer.String(), "WATCH") {
+			select {
+			case <-loggerBuffer.written:
+			case err = <-cmdResult:
+				t.Fatalf("command exited before watcher was ready: %v", err)
+			case <-timer.C:
+				t.Fatal("timed out waiting for watcher to be ready")
+			}
+		}
+		if strings.Contains(loggerBuffer.String(), "EXECUTING") {
+			t.Fatal("command executed before a file was modified")
+		}
+
+		err = os.WriteFile(filepath.Join(testDir, "trigger.txt"), []byte("trigger"), 0666)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := strings.TrimSpace(buf.String())
-		want := ""
-		if got != want {
+
+		for {
+			logs := loggerBuffer.String()
+			fileEventIndex := strings.Index(logs, "trigger.txt")
+			executingIndex := strings.LastIndex(logs, "EXECUTING")
+			if fileEventIndex >= 0 && executingIndex > fileEventIndex {
+				break
+			}
+			select {
+			case <-loggerBuffer.written:
+			case err = <-cmdResult:
+				t.Fatalf("command exited before executing after the file event: %v", err)
+			case <-timer.C:
+				t.Fatalf("timed out waiting for execution after file event:\n%s", logs)
+			}
+		}
+		for stdoutBuffer.Len() < len("hello\n") {
+			select {
+			case <-stdoutBuffer.written:
+			case err = <-cmdResult:
+				t.Fatalf("command exited before producing expected output: %v", err)
+			case <-timer.C:
+				t.Fatalf("timed out waiting for output: %q", stdoutBuffer.String())
+			}
+		}
+		if got, want := strings.Count(loggerBuffer.String(), "EXECUTING"), 1; got != want {
+			t.Errorf("\ngot executions:  %d\nwant executions: %d", got, want)
+		}
+		if got, want := strings.TrimSpace(stdoutBuffer.String()), "hello"; got != want {
 			t.Errorf("\ngot:  %q\nwant: %q", got, want)
+		}
+
+		cancel()
+		err = <-cmdResult
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
 		}
 	})
 }
