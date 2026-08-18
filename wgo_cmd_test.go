@@ -697,10 +697,8 @@ func TestWgoCmd_Run(t *testing.T) {
 
 func TestWgoCmd_FileEvent(t *testing.T) {
 	t.Parallel()
-	os.RemoveAll("testdata/file_event/foo.txt")
-	os.RemoveAll("testdata/file_event/internal")
-	defer os.RemoveAll("testdata/file_event/foo.txt")
-	defer os.RemoveAll("testdata/file_event/internal")
+
+	// Precompile the testdata/file_event executable.
 	executablePath := filepath.Join(os.TempDir(), t.Name()+".exe")
 	err := exec.Command("go", "build", "-o", executablePath, "./testdata/file_event").Run()
 	if err != nil {
@@ -708,14 +706,21 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 	}
 	defer os.Remove(executablePath)
 
+	os.RemoveAll("testdata/file_event/foo.txt")
+	os.RemoveAll("testdata/file_event/internal")
+	defer os.RemoveAll("testdata/file_event/foo.txt")
+	defer os.RemoveAll("testdata/file_event/internal")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", "testdata/file_event", "-file", ".txt", executablePath})
 	if err != nil {
 		t.Fatal(err)
 	}
-	testBuffer := NewTestBuffer()
-	wgoCmd.Stdout = testBuffer
+	stdoutBuffer := &TestBuffer{
+		written: make(chan struct{}, 1),
+	}
+	wgoCmd.Stdout = stdoutBuffer
 	cmdResult := make(chan error)
 	go func() {
 		cmdResult <- wgoCmd.Run()
@@ -725,14 +730,14 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 main.go
 run.bat`
 	timer := time.NewTimer(time.Minute)
-	for testBuffer.Len() < len(want) {
+	for stdoutBuffer.Len() < len(want) {
 		select {
-		case <-testBuffer.written:
+		case <-stdoutBuffer.written:
 		case <-timer.C:
 			t.Fatal("timed out waiting for output")
 		}
 	}
-	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+	if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
 		t.Fatal(diff)
 	}
 
@@ -749,14 +754,14 @@ foo.txt: foo
 main.go
 run.bat`
 	timer.Reset(time.Minute)
-	for testBuffer.Len() < len(want) {
+	for stdoutBuffer.Len() < len(want) {
 		select {
-		case <-testBuffer.written:
+		case <-stdoutBuffer.written:
 		case <-timer.C:
 			t.Fatal("timed out waiting for output")
 		}
 	}
-	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+	if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
 		t.Fatal(diff)
 	}
 
@@ -777,14 +782,14 @@ foo.txt: foo fighters
 main.go
 run.bat`
 	timer.Reset(time.Minute)
-	for testBuffer.Len() < len(want) {
+	for stdoutBuffer.Len() < len(want) {
 		select {
-		case <-testBuffer.written:
+		case <-stdoutBuffer.written:
 		case <-timer.C:
 			t.Fatal("timed out waiting for output")
 		}
 	}
-	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+	if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
 		t.Fatal(diff)
 	}
 
@@ -823,14 +828,14 @@ internal/baz/baz.txt: baz
 main.go
 run.bat`
 	timer.Reset(time.Minute)
-	for testBuffer.Len() < len(want) {
+	for stdoutBuffer.Len() < len(want) {
 		select {
-		case <-testBuffer.written:
+		case <-stdoutBuffer.written:
 		case <-timer.C:
 			t.Fatal("timed out waiting for output")
 		}
 	}
-	if diff := Diff(strings.TrimSpace(testBuffer.String()), want); diff != "" {
+	if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
 		t.Fatal(diff)
 	}
 
@@ -839,7 +844,7 @@ run.bat`
 	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
-	got := strings.TrimSpace(testBuffer.String())
+	got := strings.TrimSpace(stdoutBuffer.String())
 	want = `---
 main.go
 run.bat
@@ -864,10 +869,8 @@ run.bat`
 
 func TestWgoCmd_Polling(t *testing.T) {
 	t.Parallel()
-	os.RemoveAll("testdata/polling/foo.txt")
-	os.RemoveAll("testdata/polling/internal")
-	defer os.RemoveAll("testdata/polling/foo.txt")
-	defer os.RemoveAll("testdata/polling/internal")
+
+	// Precompile the testdata/polling executable.
 	executablePath := filepath.Join(os.TempDir(), t.Name()+".exe")
 	err := exec.Command("go", "build", "-o", executablePath, "./testdata/polling").Run()
 	if err != nil {
@@ -875,13 +878,20 @@ func TestWgoCmd_Polling(t *testing.T) {
 	}
 	defer os.Remove(executablePath)
 
+	os.RemoveAll("testdata/polling/foo.txt")
+	os.RemoveAll("testdata/polling/internal")
+	defer os.RemoveAll("testdata/polling/foo.txt")
+	defer os.RemoveAll("testdata/polling/internal")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", "testdata/polling", "-file", ".txt", "-poll", "100ms", executablePath})
 	if err != nil {
 		t.Fatal(err)
 	}
-	testBuffer := NewTestBuffer()
+	testBuffer := &TestBuffer{
+		written: make(chan struct{}, 1),
+	}
 	wgoCmd.Stdout = testBuffer
 	cmdResult := make(chan error)
 	go func() {
@@ -1016,44 +1026,74 @@ main.go`
 
 func TestStdin(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	// Precompile ./testdata/stdin executable so that wgoCmd.Run() isn't
-	// affected by Go compile times. We need to command to run _immediately_ so
-	// that it starts reading from stdin immediately.
+
+	// Precompile testdata/stdin executable.
 	executablePath := filepath.Join(os.TempDir(), t.Name()+".exe")
 	err := exec.Command("go", "build", "-o", executablePath, "./testdata/stdin").Run()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.Remove(executablePath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", "testdata/stdin", "-stdin", executablePath})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// This is so awfully flaky, but we probably need to wait like 5 seconds
-	// before writing to stdin in case the command hasn't started. Just in
-	// case, idk, the test runner is running on a pentium cpu or something and
-	// causes tests to fail because it's too slow.
 	pipeReader, pipeWriter := io.Pipe()
 	wgoCmd.Stdin = pipeReader
+	logBuffer := &TestBuffer{
+		written: make(chan struct{}, 1),
+	}
+	wgoCmd.Logger = log.New(logBuffer, "", 0)
+	testBuffer := &TestBuffer{
+		written: make(chan struct{}, 1),
+	}
+	wgoCmd.Stderr = testBuffer
+	cmdResult := make(chan error)
 	go func() {
-		time.Sleep(5 * time.Second)
-		pipeWriter.Write([]byte("foo\nbar\nbaz\n"))
-		pipeWriter.Close()
+		cmdResult <- wgoCmd.Run()
 	}()
-	buf := &TestBuffer{}
-	wgoCmd.Stderr = buf
-	err = wgoCmd.Run()
-	if err != nil {
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatal(err)
+
+	timer := time.NewTimer(time.Minute)
+	defer timer.Stop()
+	for logBuffer.Len() == 0 {
+		select {
+		case <-logBuffer.written:
+		case err = <-cmdResult:
+			t.Fatalf("command exited before starting: %v", err)
+		case <-timer.C:
+			t.Fatal("timed out waiting for command to start")
 		}
 	}
-	got := strings.TrimSpace(buf.String())
+	_, err = pipeWriter.Write([]byte("foo\nbar\nbaz\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = pipeWriter.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := "1: foo\n2: bar\n3: baz"
+	for testBuffer.Len() < len(want) {
+		select {
+		case <-testBuffer.written:
+		case err = <-cmdResult:
+			t.Fatalf("command exited before producing expected output: %v", err)
+		case <-timer.C:
+			t.Fatal("timed out waiting for output")
+		}
+	}
+	got := strings.TrimSpace(testBuffer.String())
 	if got != want {
-		t.Errorf("\ngot:  %q\nwant: %q", got, want)
+		t.Fatalf("\ngot:  %q\nwant: %q", got, want)
+	}
+
+	cancel()
+	err = <-cmdResult
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
 	}
 }
 
@@ -1108,20 +1148,12 @@ func Diff(got, want any, opts ...cmp.Option) string {
 	return ""
 }
 
-// TestBuffer is a custom buffer type that is guarded by a sync.Mutex and
-// everytime it writes it sends a signal down the written channel.
+// TestBuffer is a custom buffer type that is guarded by a sync.Mutex and on
+// write it attempts to send a signal down the written channel.
 type TestBuffer struct {
 	mutex   sync.Mutex
 	buffer  bytes.Buffer
 	written chan struct{}
-}
-
-func NewTestBuffer() *TestBuffer {
-	return &TestBuffer{
-		mutex:   sync.Mutex{},
-		buffer:  bytes.Buffer{},
-		written: make(chan struct{}, 1),
-	}
 }
 
 func (b *TestBuffer) Read(p []byte) (n int, err error) {
