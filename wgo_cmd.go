@@ -194,6 +194,9 @@ func WgoCommand(ctx context.Context, wgoNumber int, args []string) (*WgoCmd, err
 	// Parse flags.
 	var debounce, poll string
 	flagset := flag.NewFlagSet("", flag.ContinueOnError)
+	if output, ok := ctx.Value("flagsetOutput").(io.Writer); ok {
+		flagset.SetOutput(output)
+	}
 	flagset.StringVar(&wgoCmd.Dir, "cd", "", "Change to a different directory to run the commands.")
 	flagset.BoolVar(&verbose, "verbose", false, "Log file events.")
 	flagset.BoolVar(&wgoCmd.Exit, "exit", false, "Exit when the last command exits.")
@@ -409,14 +412,17 @@ func (wgoCmd *WgoCmd) Run() error {
 	}()
 	defer watcher.Close()
 	dirSet := make(map[string]struct{})
+	var pollersReady sync.WaitGroup
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
-			go wgoCmd.pollDirectoryFunc(wgoCmd.ctx, root, fileEvents)
+			pollersReady.Add(1)
+			go wgoCmd.pollDirectoryFunc(wgoCmd.ctx, root, fileEvents, &pollersReady)
 			wgoCmd.Logger.Println("POLL", filepath.ToSlash(root))
 		} else {
 			wgoCmd.addDirsRecursively(watcher, root, dirSet)
 		}
 	}
+	pollersReady.Wait()
 	// Timer is used to debounce events. Each event does not directly trigger a
 	// reload, it only resets the timer. Only when the timer is allowed to
 	// fully expire will the reload actually occur.
@@ -857,9 +863,8 @@ func (wgoCmd *WgoCmd) match(op string, path string, isDir bool) bool {
 	return false
 }
 
-// pollDirectoryFunc takes an initial snapshot of a directory and returns a
-// function that polls it recursively for changes.
-func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events chan<- FileEvent) {
+// pollDirectoryFunc polls a directory recursively for changes.
+func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events chan<- FileEvent, pollersReady *sync.WaitGroup) {
 	type WatchedItem struct {
 		Name   string
 		IsDir  bool
@@ -871,6 +876,9 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 
 	dirEntries, err := os.ReadDir(path)
 	if err != nil {
+		if pollersReady != nil {
+			pollersReady.Done()
+		}
 		wgoCmd.Logger.Println(err)
 		return
 	}
@@ -929,20 +937,29 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 	for _, name := range dirNames {
 		ctx, cancel := context.WithCancel(ctx)
 		dirItems[name] = WatchedItem{Cancel: cancel, IsDir: true}
+		if pollersReady != nil {
+			pollersReady.Add(1)
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events)
+			wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events, pollersReady)
 		}()
 	}
 	for _, name := range fileNames {
 		ctx, cancel := context.WithCancel(ctx)
 		dirItems[name] = WatchedItem{Cancel: cancel, IsDir: false}
+		if pollersReady != nil {
+			pollersReady.Add(1)
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			wgoCmd.pollFileFunc(ctx, filepath.Join(path, name), events)
+			wgoCmd.pollFileFunc(ctx, filepath.Join(path, name), events, pollersReady)
 		}()
+	}
+	if pollersReady != nil {
+		pollersReady.Done()
 	}
 
 	// seen tracks which names we have already seen. We are declaring it
@@ -977,13 +994,13 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events)
+					wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events, nil)
 				}()
 			} else {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					wgoCmd.pollFileFunc(ctx, filepath.Join(path, name), events)
+					wgoCmd.pollFileFunc(ctx, filepath.Join(path, name), events, nil)
 				}()
 			}
 		}
@@ -998,10 +1015,12 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 	}
 }
 
-// pollFileFunc takes an initial snapshot of a file and returns a function that
-// polls it for changes.
-func (wgoCmd *WgoCmd) pollFileFunc(ctx context.Context, path string, events chan<- FileEvent) {
+// pollFileFunc polls a file for changes.
+func (wgoCmd *WgoCmd) pollFileFunc(ctx context.Context, path string, events chan<- FileEvent, pollersReady *sync.WaitGroup) {
 	fileInfo, err := os.Stat(path)
+	if pollersReady != nil {
+		pollersReady.Done()
+	}
 	if err != nil {
 		return
 	}

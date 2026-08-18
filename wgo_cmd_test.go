@@ -1574,11 +1574,12 @@ func TestShellWrapping(t *testing.T) {
 }
 
 func TestHelp(t *testing.T) {
-	_, err := WgoCommand(context.Background(), 0, []string{"-h"})
+	ctx := context.WithValue(context.Background(), "flagsetOutput", io.Discard)
+	_, err := WgoCommand(ctx, 0, []string{"-h"})
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Errorf("expected flag.ErrHelp, got %#v", err)
 	}
-	_, err = WgoCommand(context.Background(), 0, []string{"run", "-h"})
+	_, err = WgoCommand(ctx, 0, []string{"run", "-h"})
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Errorf("expected flag.ErrHelp, got %#v", err)
 	}
