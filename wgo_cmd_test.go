@@ -1052,88 +1052,125 @@ static/keep.md: keep`
 		}
 	})
 
-	for _, tt := range []struct {
-		name   string
-		poll   bool
-		rename bool
-	}{
-		{name: "remove file"},
-		{name: "rename file", rename: true},
-		{name: "poll remove file", poll: true},
-		{name: "poll rename file", poll: true, rename: true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("remove file", func(t *testing.T) {
+		t.Parallel()
 
-			testDir := filepath.Join("testdata", "file_event", t.Name())
-			initTestDir(t, testDir, fstest.MapFS{
-				"keep.md":    {Data: []byte("keep")},
-				"target.txt": {Data: []byte("target")},
-			})
+		testDir := filepath.Join("testdata", "file_event", t.Name())
+		initTestDir(t, testDir, fstest.MapFS{
+			"keep.md":    {Data: []byte("keep")},
+			"target.txt": {Data: []byte("target")},
+		})
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			args := []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt"}
-			if tt.poll {
-				args = append(args, "-poll", "100ms")
-			}
-			args = append(args, executablePath, testDir)
-			wgoCmd, err := WgoCommand(ctx, 0, args)
-			if err != nil {
-				t.Fatal(err)
-			}
-			stdoutBuffer := &TestBuffer{
-				written: make(chan struct{}, 1),
-			}
-			wgoCmd.Stdout = stdoutBuffer
-			cmdResult := make(chan error, 1)
-			go func() {
-				cmdResult <- wgoCmd.Run()
-			}()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", executablePath, testDir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stdoutBuffer := &TestBuffer{
+			written: make(chan struct{}, 1),
+		}
+		wgoCmd.Stdout = stdoutBuffer
+		cmdResult := make(chan error, 1)
+		go func() {
+			cmdResult <- wgoCmd.Run()
+		}()
 
-			timer := time.NewTimer(time.Minute)
-			defer timer.Stop()
+		timer := time.NewTimer(time.Minute)
+		defer timer.Stop()
+		select {
+		case <-stdoutBuffer.written:
+		case err := <-cmdResult:
+			t.Fatalf("command exited before producing initial output: %v", err)
+		case <-timer.C:
+			t.Fatal("timed out waiting for initial output")
+		}
+
+		err = os.Remove(filepath.Join(testDir, "target.txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		want := "---\nkeep.md: keep\ntarget.txt: target\n---\nkeep.md: keep"
+		for stdoutBuffer.Len() < len(want) {
 			select {
 			case <-stdoutBuffer.written:
 			case err := <-cmdResult:
-				t.Fatalf("command exited before producing initial output: %v", err)
+				t.Fatalf("command exited before producing expected output: %v", err)
 			case <-timer.C:
-				t.Fatal("timed out waiting for initial output")
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
+		}
+		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+			t.Fatal(diff)
+		}
 
-			if tt.rename {
-				err = os.Rename(filepath.Join(testDir, "target.txt"), filepath.Join(testDir, "target.md"))
-			} else {
-				err = os.Remove(filepath.Join(testDir, "target.txt"))
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
+		cancel()
+		err = <-cmdResult
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	})
 
-			want := "---\nkeep.md: keep\ntarget.txt: target\n---\nkeep.md: keep"
-			if tt.rename {
-				want += "\ntarget.md: target"
-			}
-			for stdoutBuffer.Len() < len(want) {
-				select {
-				case <-stdoutBuffer.written:
-				case err := <-cmdResult:
-					t.Fatalf("command exited before producing expected output: %v", err)
-				case <-timer.C:
-					t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
-				}
-			}
-			if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-				t.Fatal(diff)
-			}
+	t.Run("rename file", func(t *testing.T) {
+		t.Parallel()
 
-			cancel()
-			err = <-cmdResult
-			if err != nil && !errors.Is(err, context.Canceled) {
-				t.Fatal(err)
-			}
+		testDir := filepath.Join("testdata", "file_event", t.Name())
+		initTestDir(t, testDir, fstest.MapFS{
+			"keep.md":    {Data: []byte("keep")},
+			"target.txt": {Data: []byte("target")},
 		})
-	}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", executablePath, testDir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stdoutBuffer := &TestBuffer{
+			written: make(chan struct{}, 1),
+		}
+		wgoCmd.Stdout = stdoutBuffer
+		cmdResult := make(chan error, 1)
+		go func() {
+			cmdResult <- wgoCmd.Run()
+		}()
+
+		timer := time.NewTimer(time.Minute)
+		defer timer.Stop()
+		select {
+		case <-stdoutBuffer.written:
+		case err := <-cmdResult:
+			t.Fatalf("command exited before producing initial output: %v", err)
+		case <-timer.C:
+			t.Fatal("timed out waiting for initial output")
+		}
+
+		err = os.Rename(filepath.Join(testDir, "target.txt"), filepath.Join(testDir, "target.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		want := "---\nkeep.md: keep\ntarget.txt: target\n---\nkeep.md: keep\ntarget.md: target"
+		for stdoutBuffer.Len() < len(want) {
+			select {
+			case <-stdoutBuffer.written:
+			case err := <-cmdResult:
+				t.Fatalf("command exited before producing expected output: %v", err)
+			case <-timer.C:
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
+			}
+		}
+		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+			t.Fatal(diff)
+		}
+
+		cancel()
+		err = <-cmdResult
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestWgoCmd_Polling(t *testing.T) {
@@ -1379,6 +1416,126 @@ static/keep.md: keep`
 		}
 
 		// Shut down the wgoCmd.
+		cancel()
+		err = <-cmdResult
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("remove file", func(t *testing.T) {
+		t.Parallel()
+
+		testDir := filepath.Join("testdata", "polling", t.Name())
+		initTestDir(t, testDir, fstest.MapFS{
+			"keep.md":    {Data: []byte("keep")},
+			"target.txt": {Data: []byte("target")},
+		})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", "-poll", "100ms", executablePath, testDir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stdoutBuffer := &TestBuffer{
+			written: make(chan struct{}, 1),
+		}
+		wgoCmd.Stdout = stdoutBuffer
+		cmdResult := make(chan error, 1)
+		go func() {
+			cmdResult <- wgoCmd.Run()
+		}()
+
+		timer := time.NewTimer(time.Minute)
+		defer timer.Stop()
+		select {
+		case <-stdoutBuffer.written:
+		case err := <-cmdResult:
+			t.Fatalf("command exited before producing initial output: %v", err)
+		case <-timer.C:
+			t.Fatal("timed out waiting for initial output")
+		}
+
+		err = os.Remove(filepath.Join(testDir, "target.txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		want := "---\nkeep.md: keep\ntarget.txt: target\n---\nkeep.md: keep"
+		for stdoutBuffer.Len() < len(want) {
+			select {
+			case <-stdoutBuffer.written:
+			case err := <-cmdResult:
+				t.Fatalf("command exited before producing expected output: %v", err)
+			case <-timer.C:
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
+			}
+		}
+		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+			t.Fatal(diff)
+		}
+
+		cancel()
+		err = <-cmdResult
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("rename file", func(t *testing.T) {
+		t.Parallel()
+
+		testDir := filepath.Join("testdata", "polling", t.Name())
+		initTestDir(t, testDir, fstest.MapFS{
+			"keep.md":    {Data: []byte("keep")},
+			"target.txt": {Data: []byte("target")},
+		})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", "-poll", "100ms", executablePath, testDir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stdoutBuffer := &TestBuffer{
+			written: make(chan struct{}, 1),
+		}
+		wgoCmd.Stdout = stdoutBuffer
+		cmdResult := make(chan error, 1)
+		go func() {
+			cmdResult <- wgoCmd.Run()
+		}()
+
+		timer := time.NewTimer(time.Minute)
+		defer timer.Stop()
+		select {
+		case <-stdoutBuffer.written:
+		case err := <-cmdResult:
+			t.Fatalf("command exited before producing initial output: %v", err)
+		case <-timer.C:
+			t.Fatal("timed out waiting for initial output")
+		}
+
+		err = os.Rename(filepath.Join(testDir, "target.txt"), filepath.Join(testDir, "target.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		want := "---\nkeep.md: keep\ntarget.txt: target\n---\nkeep.md: keep\ntarget.md: target"
+		for stdoutBuffer.Len() < len(want) {
+			select {
+			case <-stdoutBuffer.written:
+			case err := <-cmdResult:
+				t.Fatalf("command exited before producing expected output: %v", err)
+			case <-timer.C:
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
+			}
+		}
+		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+			t.Fatal(diff)
+		}
+
 		cancel()
 		err = <-cmdResult
 		if err != nil && !errors.Is(err, context.Canceled) {
