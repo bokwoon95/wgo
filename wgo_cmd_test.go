@@ -758,10 +758,12 @@ func TestWgoCmd_FileEvent(t *testing.T) {
 		// Start the wgoCmd.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", executablePath, testDir})
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Restrict watching to this subtest's directory so parallel subtests do not observe each other's changes.
+		wgoCmd.Roots[0] = testDir
 		stdoutBuffer := &TestBuffer{
 			written: make(chan struct{}, 1),
 		}
@@ -830,10 +832,12 @@ data/base.bin`
 		// Start the wgoCmd.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", executablePath, testDir})
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Restrict watching to this subtest's directory so parallel subtests do not observe each other's changes.
+		wgoCmd.Roots[0] = testDir
 		stdoutBuffer := &TestBuffer{
 			written: make(chan struct{}, 1),
 		}
@@ -901,10 +905,12 @@ notes.md: notes`
 		// Start the wgoCmd.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", executablePath, testDir})
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Restrict watching to this subtest's directory so parallel subtests do not observe each other's changes.
+		wgoCmd.Roots[0] = testDir
 		stdoutBuffer := &TestBuffer{
 			written: make(chan struct{}, 1),
 		}
@@ -984,10 +990,12 @@ static/keep.md: keep`
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", executablePath, testDir})
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Restrict watching to this subtest's directory so parallel subtests do not observe each other's changes.
+		wgoCmd.Roots[0] = testDir
 		stdoutBuffer := &TestBuffer{
 			written: make(chan struct{}, 1),
 		}
@@ -1044,10 +1052,12 @@ static/keep.md: keep`
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", executablePath, testDir})
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Restrict watching to this subtest's directory so parallel subtests do not observe each other's changes.
+		wgoCmd.Roots[0] = testDir
 		stdoutBuffer := &TestBuffer{
 			written: make(chan struct{}, 1),
 		}
@@ -1129,10 +1139,12 @@ func TestWgoCmd_Polling(t *testing.T) {
 		// Start the wgoCmd.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", "-poll", "100ms", executablePath, testDir})
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Restrict polling to this subtest's directory so parallel subtests do not observe each other's changes.
+		wgoCmd.Roots[0] = testDir
 		stdoutBuffer := &TestBuffer{
 			written: make(chan struct{}, 1),
 		}
@@ -1201,10 +1213,12 @@ data/base.bin`
 		// Start the wgoCmd.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", "-poll", "100ms", executablePath, testDir})
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Restrict polling to this subtest's directory so parallel subtests do not observe each other's changes.
+		wgoCmd.Roots[0] = testDir
 		stdoutBuffer := &TestBuffer{
 			written: make(chan struct{}, 1),
 		}
@@ -1272,10 +1286,12 @@ notes.md: notes`
 		// Start the wgoCmd.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", "-poll", "100ms", executablePath, testDir})
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Restrict polling to this subtest's directory so parallel subtests do not observe each other's changes.
+		wgoCmd.Roots[0] = testDir
 		stdoutBuffer := &TestBuffer{
 			written: make(chan struct{}, 1),
 		}
@@ -1355,10 +1371,12 @@ static/keep.md: keep`
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", "-poll", "100ms", executablePath, testDir})
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Restrict polling to this subtest's directory so parallel subtests do not observe each other's changes.
+		wgoCmd.Roots[0] = testDir
 		stdoutBuffer := &TestBuffer{
 			written: make(chan struct{}, 1),
 		}
@@ -1415,10 +1433,12 @@ static/keep.md: keep`
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-dir", filepath.ToSlash(testDir), "-file", ".txt", "-poll", "100ms", executablePath, testDir})
+		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Restrict polling to this subtest's directory so parallel subtests do not observe each other's changes.
+		wgoCmd.Roots[0] = testDir
 		stdoutBuffer := &TestBuffer{
 			written: make(chan struct{}, 1),
 		}
