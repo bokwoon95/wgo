@@ -20,7 +20,7 @@ Add tests if you add code.
 To run tests, use:
 
 ```shell
-$ go test . -race # -shuffle=on -coverprofile=coverage
+$ go test . -race # -shuffle on -coverprofile coverage
 ```
 
 PS: I noticed TestWgoCmd\_FileEvent() was consistently failing when running it on an ancient laptop, I've been using a faster laptop to circumvent the issue. If you're using a slow computer you might encounter the same thing. It's a very flaky test due to using time.Sleep, but I'm not sure how else to test it currently.
