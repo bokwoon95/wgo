@@ -881,7 +881,7 @@ data/base.bin`
 			case err := <-cmdResult:
 				t.Fatalf("command exited before producing expected output: %v", err)
 			case <-timer.C:
-				t.Fatal("timed out waiting for output")
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
 		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
@@ -952,7 +952,7 @@ notes.md: notes`
 			case err := <-cmdResult:
 				t.Fatalf("command exited before producing expected output: %v", err)
 			case <-timer.C:
-				t.Fatal("timed out waiting for output")
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
 		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
@@ -1037,7 +1037,7 @@ static/keep.md: keep`
 			case err := <-cmdResult:
 				t.Fatalf("command exited before producing expected output: %v", err)
 			case <-timer.C:
-				t.Fatal("timed out waiting for output")
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
 		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
@@ -1120,7 +1120,7 @@ static/keep.md: keep`
 				case err := <-cmdResult:
 					t.Fatalf("command exited before producing expected output: %v", err)
 				case <-timer.C:
-					t.Fatal("timed out waiting for output")
+					t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 				}
 			}
 			if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
@@ -1215,7 +1215,7 @@ data/base.bin`
 			case err := <-cmdResult:
 				t.Fatalf("command exited before producing expected output: %v", err)
 			case <-timer.C:
-				t.Fatal("timed out waiting for output")
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
 		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
@@ -1286,7 +1286,7 @@ notes.md: notes`
 			case err := <-cmdResult:
 				t.Fatalf("command exited before producing expected output: %v", err)
 			case <-timer.C:
-				t.Fatal("timed out waiting for output")
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
 		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
@@ -1371,7 +1371,7 @@ static/keep.md: keep`
 			case err := <-cmdResult:
 				t.Fatalf("command exited before producing expected output: %v", err)
 			case <-timer.C:
-				t.Fatal("timed out waiting for output")
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
 		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
@@ -1452,7 +1452,7 @@ func TestStdin(t *testing.T) {
 		case err = <-cmdResult:
 			t.Fatalf("command exited before producing expected output: %v", err)
 		case <-timer.C:
-			t.Fatal("timed out waiting for output")
+			t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stderrBuffer.String()), want))
 		}
 	}
 	if diff := Diff(strings.TrimSpace(stderrBuffer.String()), want); diff != "" {
