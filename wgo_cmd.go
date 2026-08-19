@@ -418,6 +418,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	}
 	for root, polledPath := range polledPaths {
 		if polledPath != nil {
+			// TODO: rotate so that it's polledPath.poll(ctx, wgoCmd, root, fileEvents)?
 			go wgoCmd.pollPath(wgoCmd.ctx, root, polledPath, fileEvents)
 		}
 	}
