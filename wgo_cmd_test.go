@@ -216,7 +216,10 @@ func TestWgoCmd_match(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := wgoCmd.match("", path, tt.isDir)
+			got := wgoCmd.match(FileEvent{
+				Event: fsnotify.Event{Name: path},
+				IsDir: tt.isDir,
+			})
 			if !got && tt.want {
 				t.Errorf("%v failed to match %q", tt.args, tt.path)
 			} else if got && !tt.want {

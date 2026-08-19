@@ -401,26 +401,32 @@ func (wgoCmd *WgoCmd) Run() error {
 	// polling.
 	fileEvents := make(chan FileEvent)
 	dirSet := make(map[string]struct{})
-	polledPaths := make(map[string]*PolledPath)
+	pollEntries := make(map[string]*PollEntry)
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
 			wgoCmd.Logger.Println("POLL", filepath.ToSlash(root))
-			polledPaths[root] = wgoCmd.snapshotDirectory(root)
+			pollEntry := wgoCmd.generatePollEntry(root)
+			if pollEntry != nil {
+				pollEntries[root] = pollEntry
+			}
 		} else {
 			wgoCmd.addDirsRecursively(watcher, root, dirSet)
 		}
 	}
+	for root, pollEntry := range pollEntries {
+		go wgoCmd.poll(wgoCmd.ctx, root, pollEntry, fileEvents)
+	}
 	go func() {
 		for event := range watcher.Events {
-			fileEvent := FileEvent{Event: event}
-			if !fileEvent.Has(fsnotify.Create) && !fileEvent.Has(fsnotify.Write) && !fileEvent.Has(fsnotify.Remove) && !fileEvent.Has(fsnotify.Rename) {
+			if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
 				continue
 			}
-			if fileEvent.Has(fsnotify.Remove) || fileEvent.Has(fsnotify.Rename) {
-				_, fileEvent.IsDir = dirSet[fileEvent.Name]
-				if fileEvent.IsDir {
-					delete(dirSet, fileEvent.Name)
-					prefix := fileEvent.Name + string(filepath.Separator)
+			var isDir bool
+			if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
+				_, isDir = dirSet[event.Name]
+				if isDir {
+					delete(dirSet, event.Name)
+					prefix := event.Name + string(filepath.Separator)
 					for dir := range dirSet {
 						if strings.HasPrefix(dir, prefix) {
 							delete(dirSet, dir)
@@ -428,29 +434,23 @@ func (wgoCmd *WgoCmd) Run() error {
 					}
 				}
 			} else {
-				fileInfo, err := os.Stat(fileEvent.Name)
+				fileInfo, err := os.Stat(event.Name)
 				if err != nil {
 					continue
 				}
-				fileEvent.IsDir = fileInfo.IsDir()
-				if fileEvent.IsDir {
-					dirSet[fileEvent.Name] = struct{}{}
-					if fileEvent.Has(fsnotify.Create) {
-						wgoCmd.addDirsRecursively(watcher, fileEvent.Name, dirSet)
+				isDir = fileInfo.IsDir()
+				if isDir {
+					dirSet[event.Name] = struct{}{}
+					if event.Has(fsnotify.Create) {
+						wgoCmd.addDirsRecursively(watcher, event.Name, dirSet)
 					}
 				} else {
-					delete(dirSet, fileEvent.Name)
+					delete(dirSet, event.Name)
 				}
 			}
-			fileEvents <- fileEvent
+			fileEvents <- FileEvent{Event: event, IsDir: isDir}
 		}
 	}()
-	for root, polledPath := range polledPaths {
-		if polledPath != nil {
-			// TODO: rotate so that it's polledPath.poll(ctx, wgoCmd, root, fileEvents)?
-			go wgoCmd.pollPath(wgoCmd.ctx, root, polledPath, fileEvents)
-		}
-	}
 	// Timer is used to debounce events. Each event does not directly trigger a
 	// reload, it only resets the timer. Only when the timer is allowed to
 	// fully expire will the reload actually occur.
@@ -494,7 +494,7 @@ func (wgoCmd *WgoCmd) Run() error {
 					case <-wgoCmd.ctx.Done():
 						return nil
 					case fileEvent := <-fileEvents:
-						if wgoCmd.match(fileEvent.Op.String(), fileEvent.Name, fileEvent.IsDir) {
+						if wgoCmd.match(fileEvent) {
 							timer.Reset(wgoCmd.Debounce)
 						}
 					case <-timer.C:
@@ -589,7 +589,7 @@ func (wgoCmd *WgoCmd) Run() error {
 					}
 					continue CMD_CHAIN
 				case fileEvent := <-fileEvents:
-					if wgoCmd.match(fileEvent.Op.String(), fileEvent.Name, fileEvent.IsDir) {
+					if wgoCmd.match(fileEvent) {
 						timer.Reset(wgoCmd.Debounce) // Start the timer.
 					}
 				case <-timer.C: // Timer expired, reload commands.
@@ -736,23 +736,23 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string, 
 // match checks if a given file or directory path should trigger a reload. The
 // op string is provided only for logging purposes, it is not actually used.
 // TODO: Refactor this method signature to just match(fileEvent FileEvent) bool.
-func (wgoCmd *WgoCmd) match(op string, path string, isDir bool) bool {
-	normalizedFile := filepath.ToSlash(path)
+func (wgoCmd *WgoCmd) match(fileEvent FileEvent) bool {
+	normalizedFile := filepath.ToSlash(fileEvent.Name)
 	normalizedDir := filepath.ToSlash(filepath.Dir(normalizedFile))
 	for _, root := range wgoCmd.Roots {
 		root += string(os.PathSeparator)
-		if after, ok := strings.CutPrefix(path, root); ok {
+		if after, ok := strings.CutPrefix(fileEvent.Name, root); ok {
 			normalizedFile = filepath.ToSlash(after)
 			normalizedDir = filepath.ToSlash(filepath.Dir(normalizedFile))
 			break
 		}
 	}
-	if isDir {
+	if fileEvent.IsDir {
 		normalizedDir = normalizedFile
 	}
 	for _, r := range wgoCmd.ExcludeDirRegexps {
 		if r.MatchString(normalizedDir) {
-			wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+			wgoCmd.Logger.Println("(skip)", fileEvent.Op.String(), normalizedFile)
 			return false
 		}
 	}
@@ -765,77 +765,76 @@ func (wgoCmd *WgoCmd) match(op string, path string, isDir bool) bool {
 			}
 		}
 		if !matched {
-			wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+			wgoCmd.Logger.Println("(skip)", fileEvent.Op.String(), normalizedFile)
 			return false
 		}
-		if isDir {
-			wgoCmd.Logger.Println(op, normalizedFile)
+		if fileEvent.IsDir {
+			wgoCmd.Logger.Println(fileEvent.Op.String(), normalizedFile)
 			return true
 		}
 	}
-	if isDir {
+	if fileEvent.IsDir {
 		name := filepath.Base(normalizedDir)
 		switch name {
 		case ".git", ".hg", ".svn", ".idea", ".vscode", ".settings", "node_modules":
-			wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+			wgoCmd.Logger.Println("(skip)", fileEvent.Op.String(), normalizedFile)
 			return false
 		}
 		if strings.HasPrefix(name, ".") {
-			wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+			wgoCmd.Logger.Println("(skip)", fileEvent.Op.String(), normalizedFile)
 			return false
 		}
-		wgoCmd.Logger.Println(op, normalizedFile)
+		wgoCmd.Logger.Println(fileEvent.Op.String(), normalizedFile)
 		return true
 	}
 	for _, r := range wgoCmd.ExcludeFileRegexps {
 		if r.MatchString(normalizedFile) {
-			wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+			wgoCmd.Logger.Println("(skip)", fileEvent.Op.String(), normalizedFile)
 			return false
 		}
 	}
 	for _, r := range wgoCmd.FileRegexps {
 		if r.MatchString(normalizedFile) {
-			wgoCmd.Logger.Println(op, normalizedFile)
+			wgoCmd.Logger.Println(fileEvent.Op.String(), normalizedFile)
 			return true
 		}
 	}
 	if wgoCmd.isRun {
-		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
-			wgoCmd.Logger.Println(op, normalizedFile)
+		if strings.HasSuffix(fileEvent.Name, ".go") && !strings.HasSuffix(fileEvent.Name, "_test.go") {
+			wgoCmd.Logger.Println(fileEvent.Op.String(), normalizedFile)
 			return true
 		}
-		wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+		wgoCmd.Logger.Println("(skip)", fileEvent.Op.String(), normalizedFile)
 		return false
 	}
 	if len(wgoCmd.FileRegexps) == 0 {
-		wgoCmd.Logger.Println(op, normalizedFile)
+		wgoCmd.Logger.Println(fileEvent.Op.String(), normalizedFile)
 		return true
 	}
-	wgoCmd.Logger.Println("(skip)", op, normalizedFile)
+	wgoCmd.Logger.Println("(skip)", fileEvent.Op.String(), normalizedFile)
 	return false
 }
 
-type PolledPath struct {
+type PollEntry struct {
 	IsDir     bool
-	Seen      bool
 	ModTime   time.Time
 	Size      int64
-	Children  map[string]*PolledPath // pollInfos
+	Children  map[string]*PollEntry // pollInfos
 	WaitGroup sync.WaitGroup
 	Cancel    context.CancelFunc
+	Visited   bool
 }
 
-// generatePollInfo()? ugly name
-// snapshotDirectory recursively captures the initial state of a directory.
-func (wgoCmd *WgoCmd) snapshotDirectory(path string) *PolledPath {
+// generatePollEntry recursively captures the initial state of a directory.
+func (wgoCmd *WgoCmd) generatePollEntry(path string) *PollEntry {
 	dirEntries, err := os.ReadDir(path)
 	if err != nil {
 		wgoCmd.Logger.Println(err)
 		return nil
 	}
-	snapshot := &PolledPath{
+	snapshot := &PollEntry{
 		IsDir:    true,
-		Children: make(map[string]*PolledPath),
+		Children: make(map[string]*PollEntry),
 	}
 	for _, dirEntry := range dirEntries {
 		name := dirEntry.Name()
@@ -844,7 +843,7 @@ func (wgoCmd *WgoCmd) snapshotDirectory(path string) *PolledPath {
 			if err != nil {
 				continue
 			}
-			snapshot.Children[name] = &PolledPath{ModTime: fileInfo.ModTime(), Size: fileInfo.Size()}
+			snapshot.Children[name] = &PollEntry{ModTime: fileInfo.ModTime(), Size: fileInfo.Size()}
 			continue
 		}
 
@@ -886,17 +885,17 @@ func (wgoCmd *WgoCmd) snapshotDirectory(path string) *PolledPath {
 		}
 
 		wgoCmd.Logger.Println("POLL", normalizedDir)
-		directory := wgoCmd.snapshotDirectory(dir)
-		if directory != nil {
-			snapshot.Children[name] = directory
+		child := wgoCmd.generatePollEntry(dir)
+		if child != nil {
+			snapshot.Children[name] = child
 		}
 	}
 	return snapshot
 }
 
-// pollPath polls a path for changes from an initial snapshot.
-func (wgoCmd *WgoCmd) pollPath(ctx context.Context, path string, snapshot *PolledPath, events chan<- FileEvent) {
-	if !snapshot.IsDir {
+// poll polls a path for changes from an initial snapshot.
+func (wgoCmd *WgoCmd) poll(ctx context.Context, path string, parent *PollEntry, fileEvents chan<- FileEvent) {
+	if !parent.IsDir {
 		for {
 			time.Sleep(wgoCmd.PollDuration)
 			err := ctx.Err()
@@ -909,28 +908,28 @@ func (wgoCmd *WgoCmd) pollPath(ctx context.Context, path string, snapshot *Polle
 			}
 			newModTime := fileInfo.ModTime()
 			newSize := fileInfo.Size()
-			if newModTime != snapshot.ModTime || newSize != snapshot.Size {
-				events <- FileEvent{Event: fsnotify.Event{Name: path, Op: fsnotify.Write}}
+			if newModTime != parent.ModTime || newSize != parent.Size {
+				fileEvents <- FileEvent{Event: fsnotify.Event{Name: path, Op: fsnotify.Write}}
 			}
-			snapshot.ModTime = newModTime
-			snapshot.Size = newSize
+			parent.ModTime = newModTime
+			parent.Size = newSize
 		}
 	}
 
 	defer func() {
-		for _, child := range snapshot.Children {
+		for _, child := range parent.Children {
 			child.Cancel()
 		}
-		snapshot.WaitGroup.Wait()
+		parent.WaitGroup.Wait()
 	}()
 
-	for name, child := range snapshot.Children {
-		childCtx, cancel := context.WithCancel(ctx)
+	for name, child := range parent.Children {
+		ctx, cancel := context.WithCancel(ctx)
 		child.Cancel = cancel
-		snapshot.WaitGroup.Add(1)
+		parent.WaitGroup.Add(1)
 		go func() {
-			defer snapshot.WaitGroup.Done()
-			wgoCmd.pollPath(childCtx, filepath.Join(path, name), child, events)
+			defer parent.WaitGroup.Done()
+			wgoCmd.poll(ctx, filepath.Join(path, name), child, fileEvents)
 		}()
 	}
 
@@ -944,68 +943,68 @@ func (wgoCmd *WgoCmd) pollPath(ctx context.Context, path string, snapshot *Polle
 		if err != nil {
 			continue
 		}
-		for _, child := range snapshot.Children {
-			child.Seen = false
+		for _, child := range parent.Children {
+			child.Visited = false
 		}
 		for _, dirEntry := range dirEntries {
 			name := dirEntry.Name()
 			if dirEntry.IsDir() {
-				if child, ok := snapshot.Children[name]; ok {
+				if child, ok := parent.Children[name]; ok {
 					if child.IsDir {
-						child.Seen = true
+						child.Visited = true
 						continue
 					}
 					child.Cancel()
-					delete(snapshot.Children, name)
-					events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}}
+					delete(parent.Children, name)
+					fileEvents <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}}
 				}
-				directory := wgoCmd.snapshotDirectory(filepath.Join(path, name))
-				if directory == nil {
+				child := wgoCmd.generatePollEntry(filepath.Join(path, name))
+				if child == nil {
 					continue
 				}
-				childCtx, cancel := context.WithCancel(ctx)
-				directory.Seen = true
-				directory.Cancel = cancel
-				snapshot.Children[name] = directory
-				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}, IsDir: true}
-				snapshot.WaitGroup.Add(1)
+				ctx, cancel := context.WithCancel(ctx)
+				child.Visited = true
+				child.Cancel = cancel
+				parent.Children[name] = child
+				fileEvents <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}, IsDir: true}
+				parent.WaitGroup.Add(1)
 				go func() {
-					defer snapshot.WaitGroup.Done()
-					wgoCmd.pollPath(childCtx, filepath.Join(path, name), directory, events)
+					defer parent.WaitGroup.Done()
+					wgoCmd.poll(ctx, filepath.Join(path, name), child, fileEvents)
 				}()
 				continue
 			}
-			if child, ok := snapshot.Children[name]; ok {
+			if child, ok := parent.Children[name]; ok {
 				if !child.IsDir {
-					child.Seen = true
+					child.Visited = true
 					continue
 				}
 				child.Cancel()
-				delete(snapshot.Children, name)
-				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: child.IsDir}
+				delete(parent.Children, name)
+				fileEvents <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: child.IsDir}
 			}
 			fileInfo, err := os.Stat(filepath.Join(path, name))
 			if err != nil {
 				continue
 			}
-			childCtx, cancel := context.WithCancel(ctx)
-			file := &PolledPath{Seen: true, ModTime: fileInfo.ModTime(), Size: fileInfo.Size(), Cancel: cancel}
-			snapshot.Children[name] = file
-			events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}}
-			snapshot.WaitGroup.Add(1)
+			ctx, cancel := context.WithCancel(ctx)
+			child := &PollEntry{Visited: true, ModTime: fileInfo.ModTime(), Size: fileInfo.Size(), Cancel: cancel}
+			parent.Children[name] = child
+			fileEvents <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}}
+			parent.WaitGroup.Add(1)
 			go func() {
-				defer snapshot.WaitGroup.Done()
-				wgoCmd.pollPath(childCtx, filepath.Join(path, name), file, events)
+				defer parent.WaitGroup.Done()
+				wgoCmd.poll(ctx, filepath.Join(path, name), child, fileEvents)
 			}()
 		}
 		// For names that no longer exist, cancel their goroutines.
-		for name, child := range snapshot.Children {
-			if child.Seen {
+		for name, child := range parent.Children {
+			if child.Visited {
 				continue
 			}
 			child.Cancel()
-			delete(snapshot.Children, name)
-			events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: child.IsDir}
+			delete(parent.Children, name)
+			fileEvents <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: child.IsDir}
 		}
 	}
 }
