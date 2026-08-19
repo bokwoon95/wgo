@@ -561,7 +561,9 @@ func TestWgoCmd_Run(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := strings.TrimSpace(buf.String())
-		want := "FOO=green\nBAR=lorem ipsum dolor sit amet\nWGO_RANDOM_NUMBER=" + WGO_RANDOM_NUMBER
+		want := `FOO=green
+BAR=lorem ipsum dolor sit amet
+WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 		if got != want {
 			t.Fatalf("\ngot:  %q\nwant: %q", got, want)
 		}
@@ -849,6 +851,185 @@ func TestWgoCmd_Run(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func TestWgoCmd_FileEventV2(t *testing.T) {
+	type TestTable struct {
+		description  string
+		initialState fstest.MapFS
+		changes      func(testDir string) error
+		wantOutput   string
+	}
+
+	tests := []TestTable{{
+		description: "add file",
+		initialState: fstest.MapFS{
+			"alpha.md":      {Data: []byte("alpha")},
+			"data/base.bin": {Data: []byte{0x01, 0x02, 0x03}},
+		},
+		changes: func(testDir string) error {
+			return os.WriteFile(filepath.Join(testDir, "added.txt"), []byte("added"), 0666)
+		},
+		wantOutput: `---
+alpha.md: alpha
+data/base.bin
+---
+added.txt: added
+alpha.md: alpha
+data/base.bin`,
+	}, {
+		description: "edit file",
+		initialState: fstest.MapFS{
+			"config.txt": {Data: []byte("before")},
+			"notes.md":   {Data: []byte("notes")},
+		},
+		changes: func(testDir string) error {
+			return os.WriteFile(filepath.Join(testDir, "config.txt"), []byte("after"), 0666)
+		},
+		wantOutput: `---
+config.txt: before
+notes.md: notes
+---
+config.txt: after
+notes.md: notes`,
+	}, {
+		description: "create nested directory",
+		initialState: fstest.MapFS{
+			"root.txt":       {Data: []byte("root")},
+			"static/keep.md": {Data: []byte("keep")},
+		},
+		changes: func(testDir string) error {
+			err := os.MkdirAll(filepath.Join(testDir, "internal", "nested"), 0777)
+			if err != nil {
+				return err
+			}
+			err = os.WriteFile(filepath.Join(testDir, "internal", "bar.txt"), []byte("bar"), 0666)
+			if err != nil {
+				return err
+			}
+			err = os.WriteFile(filepath.Join(testDir, "internal", "nested", "baz.txt"), []byte("baz"), 0666)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(testDir, "root.txt"), []byte("root updated"), 0666)
+		},
+		wantOutput: `---
+root.txt: root
+static/keep.md: keep
+---
+internal/bar.txt: bar
+internal/nested/baz.txt: baz
+root.txt: root updated
+static/keep.md: keep`,
+	}, {
+		description: "remove file",
+		initialState: fstest.MapFS{
+			"keep.md":    {Data: []byte("keep")},
+			"target.txt": {Data: []byte("target")},
+		},
+		changes: func(testDir string) error {
+			return os.Remove(filepath.Join(testDir, "target.txt"))
+		},
+		wantOutput: `---
+keep.md: keep
+target.txt: target
+---
+keep.md: keep`,
+	}, {
+		description: "rename file",
+		initialState: fstest.MapFS{
+			"keep.md":    {Data: []byte("keep")},
+			"target.txt": {Data: []byte("target")},
+		},
+		changes: func(testDir string) error {
+			return os.Rename(filepath.Join(testDir, "target.txt"), filepath.Join(testDir, "target.md"))
+		},
+		wantOutput: `---
+keep.md: keep
+target.txt: target
+---
+keep.md: keep
+target.md: target`,
+	}}
+	t.Parallel()
+
+	// Cleanup the directory.
+	err := os.RemoveAll(filepath.Join("testdata", "file_event", t.Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		os.RemoveAll(filepath.Join("testdata", "file_event", t.Name()))
+	})
+
+	// Precompile the testdata/file_event executable.
+	executablePath := filepath.Join(t.TempDir(), "file_event_V2.exe")
+	err = exec.Command("go", "build", "-o", executablePath, "./testdata/file_event").Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		os.Remove(executablePath)
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			t.Parallel()
+
+			testDir := filepath.Join("testdata", "file_event", t.Name())
+			initTestDir(t, testDir, tt.initialState)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wgoCmd.Roots[0] = testDir
+			stdoutBuffer := &TestBuffer{
+				written: make(chan struct{}, 1),
+			}
+			wgoCmd.Stdout = stdoutBuffer
+			cmdResult := make(chan error, 1)
+			go func() {
+				cmdResult <- wgoCmd.Run()
+			}()
+
+			timer := time.NewTimer(time.Minute)
+			defer timer.Stop()
+			select {
+			case <-stdoutBuffer.written:
+			case err := <-cmdResult:
+				t.Fatalf("command exited before producing initial output: %v", err)
+			case <-timer.C:
+				t.Fatal("timed out waiting for initial output")
+			}
+
+			err = tt.changes(testDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for stdoutBuffer.Len() < len(tt.wantOutput) {
+				select {
+				case <-stdoutBuffer.written:
+				case err := <-cmdResult:
+					t.Fatalf("command exited before producing expected output: %v", err)
+				case <-timer.C:
+					t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), tt.wantOutput))
+				}
+			}
+			if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), tt.wantOutput); diff != "" {
+				t.Fatal(diff)
+			}
+
+			cancel()
+			err = <-cmdResult
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Fatal(err)
+			}
+		})
+	}
 }
 
 func TestWgoCmd_FileEvent(t *testing.T) {
@@ -1148,7 +1329,11 @@ static/keep.md: keep`
 			t.Fatal(err)
 		}
 
-		want := "---\nkeep.md: keep\ntarget.txt: target\n---\nkeep.md: keep"
+		want := `---
+keep.md: keep
+target.txt: target
+---
+keep.md: keep`
 		for stdoutBuffer.Len() < len(want) {
 			select {
 			case <-stdoutBuffer.written:
@@ -1210,7 +1395,12 @@ static/keep.md: keep`
 			t.Fatal(err)
 		}
 
-		want := "---\nkeep.md: keep\ntarget.txt: target\n---\nkeep.md: keep\ntarget.md: target"
+		want := `---
+keep.md: keep
+target.txt: target
+---
+keep.md: keep
+target.md: target`
 		for stdoutBuffer.Len() < len(want) {
 			select {
 			case <-stdoutBuffer.written:
@@ -1529,7 +1719,11 @@ static/keep.md: keep`
 			t.Fatal(err)
 		}
 
-		want := "---\nkeep.md: keep\ntarget.txt: target\n---\nkeep.md: keep"
+		want := `---
+keep.md: keep
+target.txt: target
+---
+keep.md: keep`
 		for stdoutBuffer.Len() < len(want) {
 			select {
 			case <-stdoutBuffer.written:
@@ -1591,7 +1785,12 @@ static/keep.md: keep`
 			t.Fatal(err)
 		}
 
-		want := "---\nkeep.md: keep\ntarget.txt: target\n---\nkeep.md: keep\ntarget.md: target"
+		want := `---
+keep.md: keep
+target.txt: target
+---
+keep.md: keep
+target.md: target`
 		for stdoutBuffer.Len() < len(want) {
 			select {
 			case <-stdoutBuffer.written:
@@ -1671,7 +1870,9 @@ func TestStdin(t *testing.T) {
 	}
 
 	// Assert that what we entered to stdin was echoed to stderr by the script.
-	want := "1: foo\n2: bar\n3: baz"
+	want := `1: foo
+2: bar
+3: baz`
 	for stderrBuffer.Len() < len(want) {
 		select {
 		case <-stderrBuffer.written:
