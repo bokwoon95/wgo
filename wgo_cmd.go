@@ -589,43 +589,42 @@ func (wgoCmd *WgoCmd) Run() error {
 						break
 					}
 					continue CMD_CHAIN
-				case event := <-fileEvents:
+				case fileEvent := <-fileEvents:
 					// Only permit Create, Write, Remove and Rename. Ignore
 					// everything else.
-					if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
+					if !fileEvent.Has(fsnotify.Create) && !fileEvent.Has(fsnotify.Write) && !fileEvent.Has(fsnotify.Remove) && !fileEvent.Has(fsnotify.Rename) {
 						continue
 					}
 					if wgoCmd.PollDuration == 0 {
-						if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
-							_, event.IsDir = dirSet[event.Name]
+						if fileEvent.Has(fsnotify.Remove) || fileEvent.Has(fsnotify.Rename) {
+							_, fileEvent.IsDir = dirSet[fileEvent.Name]
+							if fileEvent.IsDir {
+								delete(dirSet, fileEvent.Name)
+								prefix := fileEvent.Name + string(filepath.Separator)
+								for dir := range dirSet {
+									if strings.HasPrefix(dir, prefix) {
+										delete(dirSet, dir)
+									}
+								}
+							}
 						} else {
-							fileInfo, err := os.Stat(event.Name)
+							fileInfo, err := os.Stat(fileEvent.Name)
 							if err != nil {
 								continue
 							}
-							event.IsDir = fileInfo.IsDir()
-							if event.IsDir {
-								dirSet[event.Name] = struct{}{}
+							fileEvent.IsDir = fileInfo.IsDir()
+							if fileEvent.IsDir {
+								dirSet[fileEvent.Name] = struct{}{}
+								if fileEvent.Has(fsnotify.Create) {
+									wgoCmd.addDirsRecursively(watcher, fileEvent.Name, dirSet)
+								}
 							} else {
-								delete(dirSet, event.Name)
+								delete(dirSet, fileEvent.Name)
 							}
 						}
 					}
-					if event.IsDir {
-						if event.Has(fsnotify.Create) && wgoCmd.PollDuration == 0 {
-							wgoCmd.addDirsRecursively(watcher, event.Name, dirSet)
-						}
-					}
-					if wgoCmd.match(event.Op.String(), event.Name, event.IsDir) {
+					if wgoCmd.match(fileEvent.Op.String(), fileEvent.Name, fileEvent.IsDir) {
 						timer.Reset(wgoCmd.Debounce) // Start the timer.
-					}
-					if event.IsDir && (event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename)) && wgoCmd.PollDuration == 0 {
-						delete(dirSet, event.Name)
-						for dir := range dirSet {
-							if strings.HasPrefix(dir, event.Name+string(filepath.Separator)) {
-								delete(dirSet, dir)
-							}
-						}
 					}
 				case <-timer.C: // Timer expired, reload commands.
 					stop(cmd)
