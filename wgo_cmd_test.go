@@ -853,7 +853,7 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 	})
 }
 
-func TestWgoCmd_FileEventV2(t *testing.T) {
+func TestWgoCmd_FileEvent(t *testing.T) {
 	type TestTable struct {
 		description string
 		fsys        fs.FS
@@ -963,7 +963,7 @@ target.md: target`,
 	})
 
 	// Precompile the testdata/file_event executable.
-	executablePath := filepath.Join(t.TempDir(), "file_event_V2.exe")
+	executablePath := filepath.Join(t.TempDir(), "file_event.exe")
 	err = exec.Command("go", "build", "-o", executablePath, "./testdata/file_event").Run()
 	if err != nil {
 		t.Fatal(err)
@@ -1070,398 +1070,105 @@ target.md: target`,
 	}
 }
 
-func TestWgoCmd_FileEvent(t *testing.T) {
+func TestWgoCmd_Polling(t *testing.T) {
+	type TestTable struct {
+		description string
+		fsys        fs.FS
+		changes     func(testDir string) error
+		want        string
+	}
 	t.Parallel()
 
-	// Cleanup the directory.
-	err := os.RemoveAll(filepath.Join("testdata", "file_event", t.Name()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		os.RemoveAll(filepath.Join("testdata", "file_event", t.Name()))
-	})
-
-	// Precompile the testdata/file_event executable.
-	executablePath := filepath.Join(t.TempDir(), "file_event.exe")
-	err = exec.Command("go", "build", "-o", executablePath, "./testdata/file_event").Run()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		os.Remove(executablePath)
-	})
-
-	t.Run("add file", func(t *testing.T) {
-		t.Parallel()
-
-		// Initialize the directory.
-		testDir := filepath.Join("testdata", "file_event", t.Name())
-		initTestDir(t, testDir, fstest.MapFS{
+	tests := []TestTable{{
+		description: "add file",
+		fsys: fstest.MapFS{
 			"alpha.md":      {Data: []byte("alpha")},
 			"data/base.bin": {Data: []byte{0x01, 0x02, 0x03}},
-		})
-
-		// Start the wgoCmd.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Restrict watching to this subtest's directory so parallel subtests do not observe each other's changes.
-		wgoCmd.Roots[0] = testDir
-		stdoutBuffer := &TestBuffer{
-			written: make(chan struct{}, 1),
-		}
-		wgoCmd.Stdout = stdoutBuffer
-		cmdResult := make(chan error, 1)
-		go func() {
-			cmdResult <- wgoCmd.Run()
-		}()
-
-		// Wait for initial script output.
-		timer := time.NewTimer(time.Minute)
-		defer timer.Stop()
-		select {
-		case <-stdoutBuffer.written:
-		case err := <-cmdResult:
-			t.Fatalf("command exited before producing initial output: %v", err)
-		case <-timer.C:
-			t.Fatal("timed out waiting for initial output")
-		}
-
-		// Make changes.
-		err = os.WriteFile(filepath.Join(testDir, "added.txt"), []byte("added"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Assert the changes were reflected.
-		want := `---
+		},
+		changes: func(testDir string) error {
+			return os.WriteFile(filepath.Join(testDir, "added.txt"), []byte("added"), 0666)
+		},
+		want: `---
 alpha.md: alpha
 data/base.bin
 ---
 added.txt: added
 alpha.md: alpha
-data/base.bin`
-		for stdoutBuffer.Len() < len(want) {
-			select {
-			case <-stdoutBuffer.written:
-			case err := <-cmdResult:
-				t.Fatalf("command exited before producing expected output: %v", err)
-			case <-timer.C:
-				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
-			}
-		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-			t.Fatal(diff)
-		}
-
-		// Shut down the wgoCmd.
-		cancel()
-		err = <-cmdResult
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	})
-
-	t.Run("edit file", func(t *testing.T) {
-		t.Parallel()
-
-		// Initialize the directory.
-		testDir := filepath.Join("testdata", "file_event", t.Name())
-		initTestDir(t, testDir, fstest.MapFS{
+data/base.bin`,
+	}, {
+		description: "edit file",
+		fsys: fstest.MapFS{
 			"config.txt": {Data: []byte("before")},
 			"notes.md":   {Data: []byte("notes")},
-		})
-
-		// Start the wgoCmd.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Restrict watching to this subtest's directory so parallel subtests do not observe each other's changes.
-		wgoCmd.Roots[0] = testDir
-		stdoutBuffer := &TestBuffer{
-			written: make(chan struct{}, 1),
-		}
-		wgoCmd.Stdout = stdoutBuffer
-		cmdResult := make(chan error, 1)
-		go func() {
-			cmdResult <- wgoCmd.Run()
-		}()
-
-		// Wait for initial script output.
-		timer := time.NewTimer(time.Minute)
-		defer timer.Stop()
-		select {
-		case <-stdoutBuffer.written:
-		case err := <-cmdResult:
-			t.Fatalf("command exited before producing initial output: %v", err)
-		case <-timer.C:
-			t.Fatal("timed out waiting for initial output")
-		}
-
-		// Make changes.
-		err = os.WriteFile(filepath.Join(testDir, "config.txt"), []byte("after"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Assert the changes were reflected.
-		want := `---
+		},
+		changes: func(testDir string) error {
+			return os.WriteFile(filepath.Join(testDir, "config.txt"), []byte("after"), 0666)
+		},
+		want: `---
 config.txt: before
 notes.md: notes
 ---
 config.txt: after
-notes.md: notes`
-		for stdoutBuffer.Len() < len(want) {
-			select {
-			case <-stdoutBuffer.written:
-			case err := <-cmdResult:
-				t.Fatalf("command exited before producing expected output: %v", err)
-			case <-timer.C:
-				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
-			}
-		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-			t.Fatal(diff)
-		}
-
-		// Shut down the wgoCmd.
-		cancel()
-		err = <-cmdResult
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	})
-
-	t.Run("create nested directory", func(t *testing.T) {
-		t.Parallel()
-
-		// Initialize the directory.
-		testDir := filepath.Join("testdata", "file_event", t.Name())
-		initTestDir(t, testDir, fstest.MapFS{
+notes.md: notes`,
+	}, {
+		description: "create nested directory",
+		fsys: fstest.MapFS{
 			"root.txt":       {Data: []byte("root")},
 			"static/keep.md": {Data: []byte("keep")},
-		})
-
-		// Start the wgoCmd.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Restrict watching to this subtest's directory so parallel subtests do not observe each other's changes.
-		wgoCmd.Roots[0] = testDir
-		stdoutBuffer := &TestBuffer{
-			written: make(chan struct{}, 1),
-		}
-		wgoCmd.Stdout = stdoutBuffer
-		cmdResult := make(chan error, 1)
-		go func() {
-			cmdResult <- wgoCmd.Run()
-		}()
-
-		// Wait for initial script output.
-		timer := time.NewTimer(time.Minute)
-		defer timer.Stop()
-		select {
-		case <-stdoutBuffer.written:
-		case err := <-cmdResult:
-			t.Fatalf("command exited before producing initial output: %v", err)
-		case <-timer.C:
-			t.Fatal("timed out waiting for initial output")
-		}
-
-		// Make changes.
-		err = os.MkdirAll(filepath.Join(testDir, "internal", "nested"), 0777)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = os.WriteFile(filepath.Join(testDir, "internal", "bar.txt"), []byte("bar"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = os.WriteFile(filepath.Join(testDir, "internal", "nested", "baz.txt"), []byte("baz"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = os.WriteFile(filepath.Join(testDir, "root.txt"), []byte("root updated"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Assert the changes were reflected.
-		want := `---
+		},
+		changes: func(testDir string) error {
+			err := os.MkdirAll(filepath.Join(testDir, "internal", "nested"), 0777)
+			if err != nil {
+				return err
+			}
+			err = os.WriteFile(filepath.Join(testDir, "internal", "bar.txt"), []byte("bar"), 0666)
+			if err != nil {
+				return err
+			}
+			err = os.WriteFile(filepath.Join(testDir, "internal", "nested", "baz.txt"), []byte("baz"), 0666)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(testDir, "root.txt"), []byte("root updated"), 0666)
+		},
+		want: `---
 root.txt: root
 static/keep.md: keep
 ---
 internal/bar.txt: bar
 internal/nested/baz.txt: baz
 root.txt: root updated
-static/keep.md: keep`
-		for stdoutBuffer.Len() < len(want) {
-			select {
-			case <-stdoutBuffer.written:
-			case err := <-cmdResult:
-				t.Fatalf("command exited before producing expected output: %v", err)
-			case <-timer.C:
-				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
-			}
-		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-			t.Fatal(diff)
-		}
-
-		// Shut down the wgoCmd.
-		cancel()
-		err = <-cmdResult
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	})
-
-	t.Run("remove file", func(t *testing.T) {
-		t.Parallel()
-
-		testDir := filepath.Join("testdata", "file_event", t.Name())
-		initTestDir(t, testDir, fstest.MapFS{
+static/keep.md: keep`,
+	}, {
+		description: "remove file",
+		fsys: fstest.MapFS{
 			"keep.md":    {Data: []byte("keep")},
 			"target.txt": {Data: []byte("target")},
-		})
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Restrict watching to this subtest's directory so parallel subtests do not observe each other's changes.
-		wgoCmd.Roots[0] = testDir
-		stdoutBuffer := &TestBuffer{
-			written: make(chan struct{}, 1),
-		}
-		wgoCmd.Stdout = stdoutBuffer
-		cmdResult := make(chan error, 1)
-		go func() {
-			cmdResult <- wgoCmd.Run()
-		}()
-
-		timer := time.NewTimer(time.Minute)
-		defer timer.Stop()
-		select {
-		case <-stdoutBuffer.written:
-		case err := <-cmdResult:
-			t.Fatalf("command exited before producing initial output: %v", err)
-		case <-timer.C:
-			t.Fatal("timed out waiting for initial output")
-		}
-
-		err = os.Remove(filepath.Join(testDir, "target.txt"))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		want := `---
+		},
+		changes: func(testDir string) error {
+			return os.Remove(filepath.Join(testDir, "target.txt"))
+		},
+		want: `---
 keep.md: keep
 target.txt: target
 ---
-keep.md: keep`
-		for stdoutBuffer.Len() < len(want) {
-			select {
-			case <-stdoutBuffer.written:
-			case err := <-cmdResult:
-				t.Fatalf("command exited before producing expected output: %v", err)
-			case <-timer.C:
-				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
-			}
-		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-			t.Fatal(diff)
-		}
-
-		cancel()
-		err = <-cmdResult
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	})
-
-	t.Run("rename file", func(t *testing.T) {
-		t.Parallel()
-
-		testDir := filepath.Join("testdata", "file_event", t.Name())
-		initTestDir(t, testDir, fstest.MapFS{
+keep.md: keep`,
+	}, {
+		description: "rename file",
+		fsys: fstest.MapFS{
 			"keep.md":    {Data: []byte("keep")},
 			"target.txt": {Data: []byte("target")},
-		})
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Restrict watching to this subtest's directory so parallel subtests do not observe each other's changes.
-		wgoCmd.Roots[0] = testDir
-		stdoutBuffer := &TestBuffer{
-			written: make(chan struct{}, 1),
-		}
-		wgoCmd.Stdout = stdoutBuffer
-		cmdResult := make(chan error, 1)
-		go func() {
-			cmdResult <- wgoCmd.Run()
-		}()
-
-		timer := time.NewTimer(time.Minute)
-		defer timer.Stop()
-		select {
-		case <-stdoutBuffer.written:
-		case err := <-cmdResult:
-			t.Fatalf("command exited before producing initial output: %v", err)
-		case <-timer.C:
-			t.Fatal("timed out waiting for initial output")
-		}
-
-		err = os.Rename(filepath.Join(testDir, "target.txt"), filepath.Join(testDir, "target.md"))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		want := `---
+		},
+		changes: func(testDir string) error {
+			return os.Rename(filepath.Join(testDir, "target.txt"), filepath.Join(testDir, "target.md"))
+		},
+		want: `---
 keep.md: keep
 target.txt: target
 ---
 keep.md: keep
-target.md: target`
-		for stdoutBuffer.Len() < len(want) {
-			select {
-			case <-stdoutBuffer.written:
-			case err := <-cmdResult:
-				t.Fatalf("command exited before producing expected output: %v", err)
-			case <-timer.C:
-				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
-			}
-		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-			t.Fatal(diff)
-		}
-
-		cancel()
-		err = <-cmdResult
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	})
-}
-
-func TestWgoCmd_Polling(t *testing.T) {
-	t.Parallel()
+target.md: target`,
+	}}
 
 	// Cleanup the directory.
 	err := os.RemoveAll(filepath.Join("testdata", "polling", t.Name()))
@@ -1482,372 +1189,102 @@ func TestWgoCmd_Polling(t *testing.T) {
 		os.Remove(executablePath)
 	})
 
-	t.Run("add file", func(t *testing.T) {
-		t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			t.Parallel()
 
-		// Initialize the directory.
-		testDir := filepath.Join("testdata", "polling", t.Name())
-		initTestDir(t, testDir, fstest.MapFS{
-			"alpha.md":      {Data: []byte("alpha")},
-			"data/base.bin": {Data: []byte{0x01, 0x02, 0x03}},
-		})
+			// Initialize the directory.
+			testDir := filepath.Join("testdata", "polling", t.Name())
+			err := os.RemoveAll(testDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				os.RemoveAll(testDir)
+			})
+			err = os.MkdirAll(testDir, 0777)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = fs.WalkDir(tt.fsys, ".", func(path string, dirEntry fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if path == "." {
+					return nil
+				}
+				destPath := filepath.Join(testDir, filepath.FromSlash(path))
+				if dirEntry.IsDir() {
+					return os.MkdirAll(destPath, 0777)
+				}
+				contents, err := fs.ReadFile(tt.fsys, path)
+				if err != nil {
+					return err
+				}
+				return os.WriteFile(destPath, contents, 0666)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 
-		// Start the wgoCmd.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Restrict polling to this subtest's directory so parallel subtests do not observe each other's changes.
-		wgoCmd.Roots[0] = testDir
-		stdoutBuffer := &TestBuffer{
-			written: make(chan struct{}, 1),
-		}
-		wgoCmd.Stdout = stdoutBuffer
-		cmdResult := make(chan error, 1)
-		go func() {
-			cmdResult <- wgoCmd.Run()
-		}()
+			// Start the wgoCmd.
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Forcibly update the wgoCmd's root to the testDir so we don't end
+			// up polling every single file in the repo root.
+			wgoCmd.Roots[0] = testDir
+			stdoutBuffer := &TestBuffer{
+				written: make(chan struct{}, 1),
+			}
+			wgoCmd.Stdout = stdoutBuffer
+			cmdResult := make(chan error, 1)
+			go func() {
+				cmdResult <- wgoCmd.Run()
+			}()
 
-		// Wait for initial script output.
-		timer := time.NewTimer(time.Minute)
-		defer timer.Stop()
-		select {
-		case <-stdoutBuffer.written:
-		case err := <-cmdResult:
-			t.Fatalf("command exited before producing initial output: %v", err)
-		case <-timer.C:
-			t.Fatal("timed out waiting for initial output")
-		}
-
-		// Make changes.
-		err = os.WriteFile(filepath.Join(testDir, "added.txt"), []byte("added"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Assert the changes were reflected.
-		want := `---
-alpha.md: alpha
-data/base.bin
----
-added.txt: added
-alpha.md: alpha
-data/base.bin`
-		for stdoutBuffer.Len() < len(want) {
+			// Wait for initial script output.
+			timer := time.NewTimer(time.Minute)
+			defer timer.Stop()
 			select {
 			case <-stdoutBuffer.written:
 			case err := <-cmdResult:
-				t.Fatalf("command exited before producing expected output: %v", err)
+				t.Fatalf("command exited before producing initial output: %v", err)
 			case <-timer.C:
-				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
+				t.Fatal("timed out waiting for initial output")
 			}
-		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-			t.Fatal(diff)
-		}
 
-		// Shut down the wgoCmd.
-		cancel()
-		err = <-cmdResult
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	})
+			// Make changes.
+			err = tt.changes(testDir)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	t.Run("edit file", func(t *testing.T) {
-		t.Parallel()
+			// Assert the changes were reflected.
+			for stdoutBuffer.Len() < len(tt.want) {
+				select {
+				case <-stdoutBuffer.written:
+				case err := <-cmdResult:
+					t.Fatalf("command exited before producing expected output: %v", err)
+				case <-timer.C:
+					t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), tt.want))
+				}
+			}
+			if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), tt.want); diff != "" {
+				t.Fatal(diff)
+			}
 
-		// Initialize the directory.
-		testDir := filepath.Join("testdata", "polling", t.Name())
-		initTestDir(t, testDir, fstest.MapFS{
-			"config.txt": {Data: []byte("before")},
-			"notes.md":   {Data: []byte("notes")},
+			// Shut down the wgoCmd.
+			cancel()
+			err = <-cmdResult
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Fatal(err)
+			}
 		})
-
-		// Start the wgoCmd.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Restrict polling to this subtest's directory so parallel subtests do not observe each other's changes.
-		wgoCmd.Roots[0] = testDir
-		stdoutBuffer := &TestBuffer{
-			written: make(chan struct{}, 1),
-		}
-		wgoCmd.Stdout = stdoutBuffer
-		cmdResult := make(chan error, 1)
-		go func() {
-			cmdResult <- wgoCmd.Run()
-		}()
-
-		// Wait for initial script output.
-		timer := time.NewTimer(time.Minute)
-		defer timer.Stop()
-		select {
-		case <-stdoutBuffer.written:
-		case err := <-cmdResult:
-			t.Fatalf("command exited before producing initial output: %v", err)
-		case <-timer.C:
-			t.Fatal("timed out waiting for initial output")
-		}
-
-		// Make changes.
-		err = os.WriteFile(filepath.Join(testDir, "config.txt"), []byte("after"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Assert the changes were reflected.
-		want := `---
-config.txt: before
-notes.md: notes
----
-config.txt: after
-notes.md: notes`
-		for stdoutBuffer.Len() < len(want) {
-			select {
-			case <-stdoutBuffer.written:
-			case err := <-cmdResult:
-				t.Fatalf("command exited before producing expected output: %v", err)
-			case <-timer.C:
-				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
-			}
-		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-			t.Fatal(diff)
-		}
-
-		// Shut down the wgoCmd.
-		cancel()
-		err = <-cmdResult
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	})
-
-	t.Run("create nested directory", func(t *testing.T) {
-		t.Parallel()
-
-		// Initialize the directory.
-		testDir := filepath.Join("testdata", "polling", t.Name())
-		initTestDir(t, testDir, fstest.MapFS{
-			"root.txt":       {Data: []byte("root")},
-			"static/keep.md": {Data: []byte("keep")},
-		})
-
-		// Start the wgoCmd.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Restrict polling to this subtest's directory so parallel subtests do not observe each other's changes.
-		wgoCmd.Roots[0] = testDir
-		stdoutBuffer := &TestBuffer{
-			written: make(chan struct{}, 1),
-		}
-		wgoCmd.Stdout = stdoutBuffer
-		cmdResult := make(chan error, 1)
-		go func() {
-			cmdResult <- wgoCmd.Run()
-		}()
-
-		// Wait for initial script output.
-		timer := time.NewTimer(time.Minute)
-		defer timer.Stop()
-		select {
-		case <-stdoutBuffer.written:
-		case err := <-cmdResult:
-			t.Fatalf("command exited before producing initial output: %v", err)
-		case <-timer.C:
-			t.Fatal("timed out waiting for initial output")
-		}
-
-		// Make changes.
-		err = os.MkdirAll(filepath.Join(testDir, "internal", "nested"), 0777)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = os.WriteFile(filepath.Join(testDir, "internal", "bar.txt"), []byte("bar"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = os.WriteFile(filepath.Join(testDir, "internal", "nested", "baz.txt"), []byte("baz"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = os.WriteFile(filepath.Join(testDir, "root.txt"), []byte("root updated"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Assert the changes were reflected.
-		want := `---
-root.txt: root
-static/keep.md: keep
----
-internal/bar.txt: bar
-internal/nested/baz.txt: baz
-root.txt: root updated
-static/keep.md: keep`
-		for stdoutBuffer.Len() < len(want) {
-			select {
-			case <-stdoutBuffer.written:
-			case err := <-cmdResult:
-				t.Fatalf("command exited before producing expected output: %v", err)
-			case <-timer.C:
-				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
-			}
-		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-			t.Fatal(diff)
-		}
-
-		// Shut down the wgoCmd.
-		cancel()
-		err = <-cmdResult
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	})
-
-	t.Run("remove file", func(t *testing.T) {
-		t.Parallel()
-
-		testDir := filepath.Join("testdata", "polling", t.Name())
-		initTestDir(t, testDir, fstest.MapFS{
-			"keep.md":    {Data: []byte("keep")},
-			"target.txt": {Data: []byte("target")},
-		})
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Restrict polling to this subtest's directory so parallel subtests do not observe each other's changes.
-		wgoCmd.Roots[0] = testDir
-		stdoutBuffer := &TestBuffer{
-			written: make(chan struct{}, 1),
-		}
-		wgoCmd.Stdout = stdoutBuffer
-		cmdResult := make(chan error, 1)
-		go func() {
-			cmdResult <- wgoCmd.Run()
-		}()
-
-		timer := time.NewTimer(time.Minute)
-		defer timer.Stop()
-		select {
-		case <-stdoutBuffer.written:
-		case err := <-cmdResult:
-			t.Fatalf("command exited before producing initial output: %v", err)
-		case <-timer.C:
-			t.Fatal("timed out waiting for initial output")
-		}
-
-		err = os.Remove(filepath.Join(testDir, "target.txt"))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		want := `---
-keep.md: keep
-target.txt: target
----
-keep.md: keep`
-		for stdoutBuffer.Len() < len(want) {
-			select {
-			case <-stdoutBuffer.written:
-			case err := <-cmdResult:
-				t.Fatalf("command exited before producing expected output: %v", err)
-			case <-timer.C:
-				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
-			}
-		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-			t.Fatal(diff)
-		}
-
-		cancel()
-		err = <-cmdResult
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	})
-
-	t.Run("rename file", func(t *testing.T) {
-		t.Parallel()
-
-		testDir := filepath.Join("testdata", "polling", t.Name())
-		initTestDir(t, testDir, fstest.MapFS{
-			"keep.md":    {Data: []byte("keep")},
-			"target.txt": {Data: []byte("target")},
-		})
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Restrict polling to this subtest's directory so parallel subtests do not observe each other's changes.
-		wgoCmd.Roots[0] = testDir
-		stdoutBuffer := &TestBuffer{
-			written: make(chan struct{}, 1),
-		}
-		wgoCmd.Stdout = stdoutBuffer
-		cmdResult := make(chan error, 1)
-		go func() {
-			cmdResult <- wgoCmd.Run()
-		}()
-
-		timer := time.NewTimer(time.Minute)
-		defer timer.Stop()
-		select {
-		case <-stdoutBuffer.written:
-		case err := <-cmdResult:
-			t.Fatalf("command exited before producing initial output: %v", err)
-		case <-timer.C:
-			t.Fatal("timed out waiting for initial output")
-		}
-
-		err = os.Rename(filepath.Join(testDir, "target.txt"), filepath.Join(testDir, "target.md"))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		want := `---
-keep.md: keep
-target.txt: target
----
-keep.md: keep
-target.md: target`
-		for stdoutBuffer.Len() < len(want) {
-			select {
-			case <-stdoutBuffer.written:
-			case err := <-cmdResult:
-				t.Fatalf("command exited before producing expected output: %v", err)
-			case <-timer.C:
-				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
-			}
-		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
-			t.Fatal(diff)
-		}
-
-		cancel()
-		err = <-cmdResult
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	})
+	}
 }
 
 func TestStdin(t *testing.T) {
@@ -1982,48 +1419,6 @@ func Diff(got, want any, opts ...cmp.Option) string {
 		return "\n-got +want\n" + diff
 	}
 	return ""
-}
-
-// initTestDir initializes the testDir to mirror the contents of mapFS.
-func initTestDir(t *testing.T, testDir string, mapFS fstest.MapFS) {
-	t.Helper()
-
-	// Cleanup the directory.
-	err := os.RemoveAll(testDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		os.RemoveAll(testDir)
-	})
-
-	// Create the directory.
-	err = os.MkdirAll(testDir, 0777)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Create the directory contents.
-	err = fs.WalkDir(mapFS, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if path == "." {
-			return nil
-		}
-		destPath := filepath.Join(testDir, filepath.FromSlash(path))
-		if d.IsDir() {
-			return os.MkdirAll(destPath, 0777)
-		}
-		contents, err := fs.ReadFile(mapFS, path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(destPath, contents, 0666)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 }
 
 // TestBuffer is a custom buffer type that is guarded by a sync.Mutex and on
