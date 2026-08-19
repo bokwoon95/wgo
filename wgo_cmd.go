@@ -398,11 +398,6 @@ func (wgoCmd *WgoCmd) Run() error {
 	}
 	// fileEvents channel will receive fileEvents either from the watcher or from
 	// polling.
-	//
-	// I would really prefer to use the watcher.Events channel directly instead
-	// of creating an intermediary channel that aggregates from both sources,
-	// but for some reason that will set off the race detector during tests so
-	// I have to use a separate channel :(.
 	fileEvents := make(chan FileEvent)
 	go func() {
 		for {
@@ -416,7 +411,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
 			pollersReady.Add(1)
-			go wgoCmd.pollDirectoryFunc(wgoCmd.ctx, root, fileEvents, &pollersReady)
+			go wgoCmd.pollDirectory(wgoCmd.ctx, root, fileEvents, &pollersReady)
 			wgoCmd.Logger.Println("POLL", filepath.ToSlash(root))
 		} else {
 			wgoCmd.addDirsRecursively(watcher, root, dirSet)
@@ -864,8 +859,8 @@ func (wgoCmd *WgoCmd) match(op string, path string, isDir bool) bool {
 	return false
 }
 
-// pollDirectoryFunc polls a directory recursively for changes.
-func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events chan<- FileEvent, pollersReady *sync.WaitGroup) {
+// pollDirectory polls a directory recursively for changes.
+func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events chan<- FileEvent, pollersReady *sync.WaitGroup) {
 	type WatchedItem struct {
 		Name   string
 		IsDir  bool
@@ -944,7 +939,7 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events, pollersReady)
+			wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events, pollersReady)
 		}()
 	}
 	for _, name := range fileNames {
@@ -956,7 +951,7 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			wgoCmd.pollFileFunc(ctx, filepath.Join(path, name), events, pollersReady)
+			wgoCmd.pollFile(ctx, filepath.Join(path, name), events, pollersReady)
 		}()
 	}
 	if pollersReady != nil {
@@ -995,13 +990,13 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					wgoCmd.pollDirectoryFunc(ctx, filepath.Join(path, name), events, nil)
+					wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events, nil)
 				}()
 			} else {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					wgoCmd.pollFileFunc(ctx, filepath.Join(path, name), events, nil)
+					wgoCmd.pollFile(ctx, filepath.Join(path, name), events, nil)
 				}()
 			}
 		}
@@ -1016,8 +1011,8 @@ func (wgoCmd *WgoCmd) pollDirectoryFunc(ctx context.Context, path string, events
 	}
 }
 
-// pollFileFunc polls a file for changes.
-func (wgoCmd *WgoCmd) pollFileFunc(ctx context.Context, path string, events chan<- FileEvent, pollersReady *sync.WaitGroup) {
+// pollFile polls a file for changes.
+func (wgoCmd *WgoCmd) pollFile(ctx context.Context, path string, events chan<- FileEvent, pollersReady *sync.WaitGroup) {
 	fileInfo, err := os.Stat(path)
 	if pollersReady != nil {
 		pollersReady.Done()
