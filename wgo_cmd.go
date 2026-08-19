@@ -396,16 +396,10 @@ func (wgoCmd *WgoCmd) Run() error {
 	if err != nil {
 		return err
 	}
+	defer watcher.Close()
 	// fileEvents channel will receive fileEvents either from the watcher or from
 	// polling.
 	fileEvents := make(chan FileEvent)
-	go func() {
-		for {
-			event := <-watcher.Events
-			fileEvents <- FileEvent{Event: event}
-		}
-	}()
-	defer watcher.Close()
 	dirSet := make(map[string]struct{})
 	polledPaths := make(map[string]*PolledPath)
 	for _, root := range wgoCmd.Roots {
@@ -416,6 +410,41 @@ func (wgoCmd *WgoCmd) Run() error {
 			wgoCmd.addDirsRecursively(watcher, root, dirSet)
 		}
 	}
+	go func() {
+		for event := range watcher.Events {
+			fileEvent := FileEvent{Event: event}
+			if !fileEvent.Has(fsnotify.Create) && !fileEvent.Has(fsnotify.Write) && !fileEvent.Has(fsnotify.Remove) && !fileEvent.Has(fsnotify.Rename) {
+				continue
+			}
+			if fileEvent.Has(fsnotify.Remove) || fileEvent.Has(fsnotify.Rename) {
+				_, fileEvent.IsDir = dirSet[fileEvent.Name]
+				if fileEvent.IsDir {
+					delete(dirSet, fileEvent.Name)
+					prefix := fileEvent.Name + string(filepath.Separator)
+					for dir := range dirSet {
+						if strings.HasPrefix(dir, prefix) {
+							delete(dirSet, dir)
+						}
+					}
+				}
+			} else {
+				fileInfo, err := os.Stat(fileEvent.Name)
+				if err != nil {
+					continue
+				}
+				fileEvent.IsDir = fileInfo.IsDir()
+				if fileEvent.IsDir {
+					dirSet[fileEvent.Name] = struct{}{}
+					if fileEvent.Has(fsnotify.Create) {
+						wgoCmd.addDirsRecursively(watcher, fileEvent.Name, dirSet)
+					}
+				} else {
+					delete(dirSet, fileEvent.Name)
+				}
+			}
+			fileEvents <- fileEvent
+		}
+	}()
 	for root, polledPath := range polledPaths {
 		if polledPath != nil {
 			// TODO: rotate so that it's polledPath.poll(ctx, wgoCmd, root, fileEvents)?
@@ -465,37 +494,6 @@ func (wgoCmd *WgoCmd) Run() error {
 					case <-wgoCmd.ctx.Done():
 						return nil
 					case fileEvent := <-fileEvents:
-						if !fileEvent.Has(fsnotify.Create) && !fileEvent.Has(fsnotify.Write) && !fileEvent.Has(fsnotify.Remove) && !fileEvent.Has(fsnotify.Rename) {
-							continue
-						}
-						if wgoCmd.PollDuration == 0 {
-							if fileEvent.Has(fsnotify.Remove) || fileEvent.Has(fsnotify.Rename) {
-								_, fileEvent.IsDir = dirSet[fileEvent.Name]
-								if fileEvent.IsDir {
-									delete(dirSet, fileEvent.Name)
-									prefix := fileEvent.Name + string(filepath.Separator)
-									for dir := range dirSet {
-										if strings.HasPrefix(dir, prefix) {
-											delete(dirSet, dir)
-										}
-									}
-								}
-							} else {
-								fileInfo, err := os.Stat(fileEvent.Name)
-								if err != nil {
-									continue
-								}
-								fileEvent.IsDir = fileInfo.IsDir()
-								if fileEvent.IsDir {
-									dirSet[fileEvent.Name] = struct{}{}
-									if fileEvent.Has(fsnotify.Create) {
-										wgoCmd.addDirsRecursively(watcher, fileEvent.Name, dirSet)
-									}
-								} else {
-									delete(dirSet, fileEvent.Name)
-								}
-							}
-						}
 						if wgoCmd.match(fileEvent.Op.String(), fileEvent.Name, fileEvent.IsDir) {
 							timer.Reset(wgoCmd.Debounce)
 						}
@@ -591,39 +589,6 @@ func (wgoCmd *WgoCmd) Run() error {
 					}
 					continue CMD_CHAIN
 				case fileEvent := <-fileEvents:
-					// Only permit Create, Write, Remove and Rename. Ignore
-					// everything else.
-					if !fileEvent.Has(fsnotify.Create) && !fileEvent.Has(fsnotify.Write) && !fileEvent.Has(fsnotify.Remove) && !fileEvent.Has(fsnotify.Rename) {
-						continue
-					}
-					if wgoCmd.PollDuration == 0 {
-						if fileEvent.Has(fsnotify.Remove) || fileEvent.Has(fsnotify.Rename) {
-							_, fileEvent.IsDir = dirSet[fileEvent.Name]
-							if fileEvent.IsDir {
-								delete(dirSet, fileEvent.Name)
-								prefix := fileEvent.Name + string(filepath.Separator)
-								for dir := range dirSet {
-									if strings.HasPrefix(dir, prefix) {
-										delete(dirSet, dir)
-									}
-								}
-							}
-						} else {
-							fileInfo, err := os.Stat(fileEvent.Name)
-							if err != nil {
-								continue
-							}
-							fileEvent.IsDir = fileInfo.IsDir()
-							if fileEvent.IsDir {
-								dirSet[fileEvent.Name] = struct{}{}
-								if fileEvent.Has(fsnotify.Create) {
-									wgoCmd.addDirsRecursively(watcher, fileEvent.Name, dirSet)
-								}
-							} else {
-								delete(dirSet, fileEvent.Name)
-							}
-						}
-					}
 					if wgoCmd.match(fileEvent.Op.String(), fileEvent.Name, fileEvent.IsDir) {
 						timer.Reset(wgoCmd.Debounce) // Start the timer.
 					}
