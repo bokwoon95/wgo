@@ -855,22 +855,23 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 
 func TestWgoCmd_FileEventV2(t *testing.T) {
 	type TestTable struct {
-		description  string
-		initialState fstest.MapFS
-		changes      func(testDir string) error
-		wantOutput   string
+		description string
+		fsys        fs.FS
+		changes     func(testDir string) error
+		want        string
 	}
+	t.Parallel()
 
 	tests := []TestTable{{
 		description: "add file",
-		initialState: fstest.MapFS{
+		fsys: fstest.MapFS{
 			"alpha.md":      {Data: []byte("alpha")},
 			"data/base.bin": {Data: []byte{0x01, 0x02, 0x03}},
 		},
 		changes: func(testDir string) error {
 			return os.WriteFile(filepath.Join(testDir, "added.txt"), []byte("added"), 0666)
 		},
-		wantOutput: `---
+		want: `---
 alpha.md: alpha
 data/base.bin
 ---
@@ -879,14 +880,14 @@ alpha.md: alpha
 data/base.bin`,
 	}, {
 		description: "edit file",
-		initialState: fstest.MapFS{
+		fsys: fstest.MapFS{
 			"config.txt": {Data: []byte("before")},
 			"notes.md":   {Data: []byte("notes")},
 		},
 		changes: func(testDir string) error {
 			return os.WriteFile(filepath.Join(testDir, "config.txt"), []byte("after"), 0666)
 		},
-		wantOutput: `---
+		want: `---
 config.txt: before
 notes.md: notes
 ---
@@ -894,7 +895,7 @@ config.txt: after
 notes.md: notes`,
 	}, {
 		description: "create nested directory",
-		initialState: fstest.MapFS{
+		fsys: fstest.MapFS{
 			"root.txt":       {Data: []byte("root")},
 			"static/keep.md": {Data: []byte("keep")},
 		},
@@ -913,7 +914,7 @@ notes.md: notes`,
 			}
 			return os.WriteFile(filepath.Join(testDir, "root.txt"), []byte("root updated"), 0666)
 		},
-		wantOutput: `---
+		want: `---
 root.txt: root
 static/keep.md: keep
 ---
@@ -923,35 +924,34 @@ root.txt: root updated
 static/keep.md: keep`,
 	}, {
 		description: "remove file",
-		initialState: fstest.MapFS{
+		fsys: fstest.MapFS{
 			"keep.md":    {Data: []byte("keep")},
 			"target.txt": {Data: []byte("target")},
 		},
 		changes: func(testDir string) error {
 			return os.Remove(filepath.Join(testDir, "target.txt"))
 		},
-		wantOutput: `---
+		want: `---
 keep.md: keep
 target.txt: target
 ---
 keep.md: keep`,
 	}, {
 		description: "rename file",
-		initialState: fstest.MapFS{
+		fsys: fstest.MapFS{
 			"keep.md":    {Data: []byte("keep")},
 			"target.txt": {Data: []byte("target")},
 		},
 		changes: func(testDir string) error {
 			return os.Rename(filepath.Join(testDir, "target.txt"), filepath.Join(testDir, "target.md"))
 		},
-		wantOutput: `---
+		want: `---
 keep.md: keep
 target.txt: target
 ---
 keep.md: keep
 target.md: target`,
 	}}
-	t.Parallel()
 
 	// Cleanup the directory.
 	err := os.RemoveAll(filepath.Join("testdata", "file_event", t.Name()))
@@ -976,15 +976,49 @@ target.md: target`,
 		t.Run(tt.description, func(t *testing.T) {
 			t.Parallel()
 
+			// Initialize the directory.
 			testDir := filepath.Join("testdata", "file_event", t.Name())
-			initTestDir(t, testDir, tt.initialState)
+			err := os.RemoveAll(testDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				os.RemoveAll(testDir)
+			})
+			err = os.MkdirAll(testDir, 0777)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = fs.WalkDir(tt.fsys, ".", func(path string, dirEntry fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if path == "." {
+					return nil
+				}
+				destPath := filepath.Join(testDir, filepath.FromSlash(path))
+				if dirEntry.IsDir() {
+					return os.MkdirAll(destPath, 0777)
+				}
+				contents, err := fs.ReadFile(tt.fsys, path)
+				if err != nil {
+					return err
+				}
+				return os.WriteFile(destPath, contents, 0666)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 
+			// Start the wgoCmd.
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Forcibly update the wgoCmd's root to the testDir so we don't end
+			// up polling every single file in the repo root.
 			wgoCmd.Roots[0] = testDir
 			stdoutBuffer := &TestBuffer{
 				written: make(chan struct{}, 1),
@@ -995,6 +1029,7 @@ target.md: target`,
 				cmdResult <- wgoCmd.Run()
 			}()
 
+			// Wait for initial script output.
 			timer := time.NewTimer(time.Minute)
 			defer timer.Stop()
 			select {
@@ -1005,24 +1040,27 @@ target.md: target`,
 				t.Fatal("timed out waiting for initial output")
 			}
 
+			// Make changes.
 			err = tt.changes(testDir)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			for stdoutBuffer.Len() < len(tt.wantOutput) {
+			// Assert the changes were reflected.
+			for stdoutBuffer.Len() < len(tt.want) {
 				select {
 				case <-stdoutBuffer.written:
 				case err := <-cmdResult:
 					t.Fatalf("command exited before producing expected output: %v", err)
 				case <-timer.C:
-					t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), tt.wantOutput))
+					t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), tt.want))
 				}
 			}
-			if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), tt.wantOutput); diff != "" {
+			if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), tt.want); diff != "" {
 				t.Fatal(diff)
 			}
 
+			// Shut down the wgoCmd.
 			cancel()
 			err = <-cmdResult
 			if err != nil && !errors.Is(err, context.Canceled) {
