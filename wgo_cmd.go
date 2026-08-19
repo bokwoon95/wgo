@@ -407,7 +407,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	}()
 	defer watcher.Close()
 	dirSet := make(map[string]struct{})
-	pollSnapshots := make(map[string]*DirectorySnapShot)
+	pollSnapshots := make(map[string]*DirectorySnapshot)
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
 			wgoCmd.Logger.Println("POLL", filepath.ToSlash(root))
@@ -867,21 +867,21 @@ type FileSnapshot struct {
 	Size    int64
 }
 
-type DirectorySnapShot struct {
+type DirectorySnapshot struct {
 	WaitGroup   sync.WaitGroup
-	Directories map[string]*DirectorySnapShot
+	Directories map[string]*DirectorySnapshot
 	Files       map[string]*FileSnapshot
 }
 
 // snapshotDirectory recursively captures the initial state of a directory.
-func (wgoCmd *WgoCmd) snapshotDirectory(path string) *DirectorySnapShot {
+func (wgoCmd *WgoCmd) snapshotDirectory(path string) *DirectorySnapshot {
 	dirEntries, err := os.ReadDir(path)
 	if err != nil {
 		wgoCmd.Logger.Println(err)
 		return nil
 	}
-	snapshot := &DirectorySnapShot{
-		Directories: make(map[string]*DirectorySnapShot),
+	snapshot := &DirectorySnapshot{
+		Directories: make(map[string]*DirectorySnapshot),
 		Files:       make(map[string]*FileSnapshot),
 	}
 	for _, dirEntry := range dirEntries {
@@ -940,7 +940,7 @@ func (wgoCmd *WgoCmd) snapshotDirectory(path string) *DirectorySnapShot {
 }
 
 // pollDirectory polls a directory recursively for changes from an initial snapshot.
-func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, snapshot *DirectorySnapShot, events chan<- FileEvent) {
+func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, snapshot *DirectorySnapshot, events chan<- FileEvent) {
 	type WatchedItem struct {
 		Name   string
 		IsDir  bool
