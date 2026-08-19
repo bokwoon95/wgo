@@ -867,8 +867,14 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 		Cancel func()
 	}
 
-	// dirItems maps names to their goroutine-cancelling functions and types.
-	dirItems := make(map[string]WatchedItem)
+	var watchedGroup sync.WaitGroup
+	watchedItems := make(map[string]WatchedItem)
+	defer func() {
+		for _, watchedItem := range watchedItems {
+			watchedItem.Cancel()
+		}
+		watchedGroup.Wait()
+	}()
 
 	dirEntries, err := os.ReadDir(path)
 	if err != nil {
@@ -878,79 +884,90 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 		wgoCmd.Logger.Println(err)
 		return
 	}
+
 	var dirNames []string
 	var fileNames []string
 	for _, dirEntry := range dirEntries {
 		name := dirEntry.Name()
-		if dirEntry.IsDir() {
-			match := func() bool {
-				dir := filepath.Join(path, name)
-				normalizedDir := filepath.ToSlash(dir)
-				for _, root := range wgoCmd.Roots {
-					if after, ok := strings.CutPrefix(dir, root+string(filepath.Separator)); ok {
-						normalizedDir = filepath.ToSlash(after)
-						break
-					}
-				}
-				for _, r := range wgoCmd.ExcludeDirRegexps {
-					if r.MatchString(normalizedDir) {
-						return false
-					}
-				}
-				for _, r := range wgoCmd.DirRegexps {
-					if r.MatchString(normalizedDir) {
-						wgoCmd.Logger.Println("POLL", normalizedDir)
-						return true
-					}
-				}
-				name := filepath.Base(normalizedDir)
-				switch name {
-				case ".git", ".hg", ".svn", ".idea", ".vscode", ".settings", "node_modules":
-					return false
-				}
-				if strings.HasPrefix(name, ".") {
-					return false
-				}
-				wgoCmd.Logger.Println("POLL", normalizedDir)
-				return true
-			}()
-			if match {
-				dirNames = append(dirNames, name)
+		if !dirEntry.IsDir() {
+			ctx, cancel := context.WithCancel(ctx)
+			watchedItems[name] = WatchedItem{Cancel: cancel, IsDir: false}
+			if pollersReady != nil {
+				pollersReady.Add(1)
 			}
+			watchedGroup.Add(1)
+			go func() {
+				defer watchedGroup.Done()
+				wgoCmd.pollFile(ctx, filepath.Join(path, name), events, pollersReady)
+			}()
+			continue
+		}
+		if dirEntry.IsDir() {
+			dir := filepath.Join(path, name)
+			normalizedDir := filepath.ToSlash(dir)
+			for _, root := range wgoCmd.Roots {
+				if after, ok := strings.CutPrefix(dir, root+string(filepath.Separator)); ok {
+					normalizedDir = filepath.ToSlash(after)
+					break
+				}
+			}
+
+			excluded := false
+			for _, r := range wgoCmd.ExcludeDirRegexps {
+				if r.MatchString(normalizedDir) {
+					excluded = true
+					break
+				}
+			}
+			if excluded {
+				continue
+			}
+
+			included := false
+			for _, r := range wgoCmd.DirRegexps {
+				if r.MatchString(normalizedDir) {
+					included = true
+					break
+				}
+			}
+
+			if !included {
+				switch filepath.Base(normalizedDir) {
+				case ".git", ".hg", ".svn", ".idea", ".vscode", ".settings", "node_modules":
+					continue
+				}
+				if strings.HasPrefix(filepath.Base(normalizedDir), ".") {
+					continue
+				}
+			}
+
+			wgoCmd.Logger.Println("POLL", normalizedDir)
+			dirNames = append(dirNames, name)
 		} else {
 			fileNames = append(fileNames, name)
 		}
 	}
-
-	// wg tracks the number of active child pollers.
-	var wg sync.WaitGroup
-	defer func() {
-		for _, item := range dirItems {
-			item.Cancel()
-		}
-		wg.Wait()
-	}()
 	for _, name := range dirNames {
 		ctx, cancel := context.WithCancel(ctx)
-		dirItems[name] = WatchedItem{Cancel: cancel, IsDir: true}
+		watchedItems[name] = WatchedItem{Cancel: cancel, IsDir: true}
 		if pollersReady != nil {
 			pollersReady.Add(1)
 		}
-		wg.Add(1)
+		watchedGroup.Add(1)
 		go func() {
-			defer wg.Done()
+			defer watchedGroup.Done()
 			wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events, pollersReady)
 		}()
 	}
 	for _, name := range fileNames {
 		ctx, cancel := context.WithCancel(ctx)
-		dirItems[name] = WatchedItem{Cancel: cancel, IsDir: false}
+		watchedItems[name] = WatchedItem{Cancel: cancel, IsDir: false}
 		if pollersReady != nil {
 			pollersReady.Add(1)
 		}
-		wg.Add(1)
+		watchedGroup.Add(1)
 		go func() {
-			defer wg.Done()
+			defer watchedGroup.Done()
 			wgoCmd.pollFile(ctx, filepath.Join(path, name), events, pollersReady)
 		}()
 	}
@@ -979,32 +996,32 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, events cha
 		for _, dirEntry := range dirEntries {
 			name := dirEntry.Name()
 			seen[name] = true
-			_, ok := dirItems[name]
+			_, ok := watchedItems[name]
 			if ok {
 				continue
 			}
 			ctx, cancel := context.WithCancel(ctx)
-			dirItems[name] = WatchedItem{Cancel: cancel, IsDir: dirEntry.IsDir()}
+			watchedItems[name] = WatchedItem{Cancel: cancel, IsDir: dirEntry.IsDir()}
 			events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}, IsDir: true}
 			if dirEntry.IsDir() {
-				wg.Add(1)
+				watchedGroup.Add(1)
 				go func() {
-					defer wg.Done()
+					defer watchedGroup.Done()
 					wgoCmd.pollDirectory(ctx, filepath.Join(path, name), events, nil)
 				}()
 			} else {
-				wg.Add(1)
+				watchedGroup.Add(1)
 				go func() {
-					defer wg.Done()
+					defer watchedGroup.Done()
 					wgoCmd.pollFile(ctx, filepath.Join(path, name), events, nil)
 				}()
 			}
 		}
 		// For names that no longer exist, cancel their goroutines.
-		for name, item := range dirItems {
+		for name, item := range watchedItems {
 			if !seen[name] {
 				item.Cancel()
-				delete(dirItems, name)
+				delete(watchedItems, name)
 				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: item.IsDir}
 			}
 		}
