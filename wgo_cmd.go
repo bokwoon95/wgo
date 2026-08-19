@@ -392,15 +392,19 @@ func (wgoCmd *WgoCmd) Run() error {
 		defer os.Remove(wgoCmd.executablePath)
 	}
 
+	// watcher emits events when files change (more efficient than polling).
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
 	}
 	defer watcher.Close()
-	// fileEvents channel will receive fileEvents either from the watcher or from
-	// polling.
+
+	// fileEvents receives events from the watcher and from polling.
 	fileEvents := make(chan FileEvent)
+
+	// dirSet
 	dirSet := make(map[string]struct{})
+
 	polledFiles := make(map[string]*PolledFile)
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
@@ -650,11 +654,11 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string, 
 	for _, root := range wgoCmd.Roots {
 		roots[root] = struct{}{}
 	}
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(path string, dirEntry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if !d.IsDir() {
+		if !dirEntry.IsDir() {
 			return nil
 		}
 		dirSet[path] = struct{}{}
@@ -737,7 +741,6 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string, 
 
 // match checks if a given file or directory path should trigger a reload. The
 // op string is provided only for logging purposes, it is not actually used.
-// TODO: Refactor this method signature to just match(fileEvent FileEvent) bool.
 func (wgoCmd *WgoCmd) match(fileEvent FileEvent) bool {
 	normalizedFile := filepath.ToSlash(fileEvent.Name)
 	normalizedDir := filepath.ToSlash(filepath.Dir(normalizedFile))
@@ -829,7 +832,6 @@ type PolledFile struct {
 }
 
 // newPolledFile recursively captures the initial state of a directory.
-// TODO: newPolledFile should return (*PolledFile, error)
 func (wgoCmd *WgoCmd) newPolledFile(path string) (*PolledFile, error) {
 	file := &PolledFile{
 		Path:     path,
