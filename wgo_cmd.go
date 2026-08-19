@@ -865,12 +865,14 @@ func (wgoCmd *WgoCmd) match(op string, path string, isDir bool) bool {
 type FileSnapshot struct {
 	ModTime time.Time
 	Size    int64
+	Cancel  context.CancelFunc
 }
 
 type DirectorySnapshot struct {
-	WaitGroup   sync.WaitGroup
 	Directories map[string]*DirectorySnapshot
 	Files       map[string]*FileSnapshot
+	Cancel      context.CancelFunc
+	WaitGroup   sync.WaitGroup
 }
 
 // snapshotDirectory recursively captures the initial state of a directory.
@@ -889,7 +891,6 @@ func (wgoCmd *WgoCmd) snapshotDirectory(path string) *DirectorySnapshot {
 		if !dirEntry.IsDir() {
 			fileInfo, err := os.Stat(filepath.Join(path, name))
 			if err != nil {
-				snapshot.Files[name] = nil
 				continue
 			}
 			snapshot.Files[name] = &FileSnapshot{ModTime: fileInfo.ModTime(), Size: fileInfo.Size()}
@@ -934,59 +935,53 @@ func (wgoCmd *WgoCmd) snapshotDirectory(path string) *DirectorySnapshot {
 		}
 
 		wgoCmd.Logger.Println("POLL", normalizedDir)
-		snapshot.Directories[name] = wgoCmd.snapshotDirectory(dir)
+		directory := wgoCmd.snapshotDirectory(dir)
+		if directory != nil {
+			snapshot.Directories[name] = directory
+		}
 	}
 	return snapshot
 }
 
 // pollDirectory polls a directory recursively for changes from an initial snapshot.
 func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, snapshot *DirectorySnapshot, events chan<- FileEvent) {
-	type WatchedItem struct {
-		Name   string
-		IsDir  bool
-		Cancel func()
-	}
-
-	var watchedGroup sync.WaitGroup
-	watchedItems := make(map[string]WatchedItem)
 	defer func() {
-		for _, watchedItem := range watchedItems {
-			watchedItem.Cancel()
+		for _, directory := range snapshot.Directories {
+			directory.Cancel()
 		}
-		watchedGroup.Wait()
+		for _, file := range snapshot.Files {
+			file.Cancel()
+		}
+		snapshot.WaitGroup.Wait()
 	}()
 
 	for name, directory := range snapshot.Directories {
-		ctx, cancel := context.WithCancel(ctx)
-		watchedItems[name] = WatchedItem{Cancel: cancel, IsDir: true}
-		if directory != nil {
-			watchedGroup.Add(1)
-			go func() {
-				defer watchedGroup.Done()
-				wgoCmd.pollDirectory(ctx, filepath.Join(path, name), directory, events)
-			}()
-		}
+		childCtx, cancel := context.WithCancel(ctx)
+		directory.Cancel = cancel
+		snapshot.WaitGroup.Add(1)
+		go func() {
+			defer snapshot.WaitGroup.Done()
+			wgoCmd.pollDirectory(childCtx, filepath.Join(path, name), directory, events)
+		}()
 	}
 	for name, file := range snapshot.Files {
-		ctx, cancel := context.WithCancel(ctx)
-		watchedItems[name] = WatchedItem{Cancel: cancel, IsDir: false}
-		if file != nil {
-			watchedGroup.Add(1)
-			go func() {
-				defer watchedGroup.Done()
-				wgoCmd.pollFile(ctx, filepath.Join(path, name), *file, events)
-			}()
-		}
+		childCtx, cancel := context.WithCancel(ctx)
+		file.Cancel = cancel
+		snapshot.WaitGroup.Add(1)
+		go func() {
+			defer snapshot.WaitGroup.Done()
+			wgoCmd.pollFile(childCtx, filepath.Join(path, name), file, events)
+		}()
 	}
 
-	// seen tracks which names we have already seen. We are declaring it
+	// isDir tracks which names we have already seen. We are declaring it
 	// outside the loop instead of inside the loop so that we can reuse the
 	// map.
-	seen := make(map[string]bool)
+	isDir := make(map[string]bool)
 
 	for {
-		for name := range seen {
-			delete(seen, name)
+		for name := range isDir {
+			delete(isDir, name)
 		}
 		time.Sleep(wgoCmd.PollDuration)
 		err := ctx.Err()
@@ -999,50 +994,75 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, snapshot *
 		}
 		for _, dirEntry := range dirEntries {
 			name := dirEntry.Name()
-			seen[name] = true
-			_, ok := watchedItems[name]
-			if ok {
+			isDir[name] = dirEntry.IsDir()
+			if dirEntry.IsDir() {
+				if _, ok := snapshot.Directories[name]; ok {
+					continue
+				}
+				if file, ok := snapshot.Files[name]; ok {
+					file.Cancel()
+					delete(snapshot.Files, name)
+					events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}}
+				}
+				directory := wgoCmd.snapshotDirectory(filepath.Join(path, name))
+				if directory == nil {
+					continue
+				}
+				childCtx, cancel := context.WithCancel(ctx)
+				directory.Cancel = cancel
+				snapshot.Directories[name] = directory
+				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}, IsDir: true}
+				snapshot.WaitGroup.Add(1)
+				go func() {
+					defer snapshot.WaitGroup.Done()
+					wgoCmd.pollDirectory(childCtx, filepath.Join(path, name), directory, events)
+				}()
 				continue
 			}
-			ctx, cancel := context.WithCancel(ctx)
-			watchedItems[name] = WatchedItem{Cancel: cancel, IsDir: dirEntry.IsDir()}
-			events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}, IsDir: true}
-			if dirEntry.IsDir() {
-				directory := wgoCmd.snapshotDirectory(filepath.Join(path, name))
-				if directory != nil {
-					watchedGroup.Add(1)
-					go func() {
-						defer watchedGroup.Done()
-						wgoCmd.pollDirectory(ctx, filepath.Join(path, name), directory, events)
-					}()
-				}
-			} else {
-				fileInfo, err := os.Stat(filepath.Join(path, name))
-				if err == nil {
-					file := FileSnapshot{ModTime: fileInfo.ModTime(), Size: fileInfo.Size()}
-					watchedGroup.Add(1)
-					go func() {
-						defer watchedGroup.Done()
-						wgoCmd.pollFile(ctx, filepath.Join(path, name), file, events)
-					}()
-				}
+			if _, ok := snapshot.Files[name]; ok {
+				continue
 			}
+			if directory, ok := snapshot.Directories[name]; ok {
+				directory.Cancel()
+				delete(snapshot.Directories, name)
+				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: true}
+			}
+			fileInfo, err := os.Stat(filepath.Join(path, name))
+			if err != nil {
+				continue
+			}
+			childCtx, cancel := context.WithCancel(ctx)
+			file := &FileSnapshot{ModTime: fileInfo.ModTime(), Size: fileInfo.Size(), Cancel: cancel}
+			snapshot.Files[name] = file
+			events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Create}}
+			snapshot.WaitGroup.Add(1)
+			go func() {
+				defer snapshot.WaitGroup.Done()
+				wgoCmd.pollFile(childCtx, filepath.Join(path, name), file, events)
+			}()
 		}
 		// For names that no longer exist, cancel their goroutines.
-		for name, item := range watchedItems {
-			if !seen[name] {
-				item.Cancel()
-				delete(watchedItems, name)
-				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: item.IsDir}
+		for name, directory := range snapshot.Directories {
+			directoryExists, ok := isDir[name]
+			if !ok || !directoryExists {
+				directory.Cancel()
+				delete(snapshot.Directories, name)
+				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: true}
+			}
+		}
+		for name, file := range snapshot.Files {
+			fileExists, ok := isDir[name]
+			if !ok || fileExists {
+				file.Cancel()
+				delete(snapshot.Files, name)
+				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}}
 			}
 		}
 	}
 }
 
 // pollFile polls a file for changes from an initial snapshot.
-func (wgoCmd *WgoCmd) pollFile(ctx context.Context, path string, snapshot FileSnapshot, events chan<- FileEvent) {
-	oldModTime := snapshot.ModTime
-	oldSize := snapshot.Size
+func (wgoCmd *WgoCmd) pollFile(ctx context.Context, path string, snapshot *FileSnapshot, events chan<- FileEvent) {
 	for {
 		time.Sleep(wgoCmd.PollDuration)
 		err := ctx.Err()
@@ -1055,10 +1075,10 @@ func (wgoCmd *WgoCmd) pollFile(ctx context.Context, path string, snapshot FileSn
 		}
 		newModTime := fileInfo.ModTime()
 		newSize := fileInfo.Size()
-		if newModTime != oldModTime || newSize != oldSize {
+		if newModTime != snapshot.ModTime || newSize != snapshot.Size {
 			events <- FileEvent{Event: fsnotify.Event{Name: path, Op: fsnotify.Write}}
 		}
-		oldModTime = newModTime
-		oldSize = newSize
+		snapshot.ModTime = newModTime
+		snapshot.Size = newSize
 	}
 }
