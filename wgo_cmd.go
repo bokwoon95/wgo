@@ -862,6 +862,15 @@ type DirectorySnapshot struct {
 	WaitGroup   sync.WaitGroup
 }
 
+type PolledPath struct {
+	IsDir     bool
+	ModTime   time.Time
+	Size      int64
+	Children  map[string]*PolledPath
+	WaitGroup sync.WaitGroup
+	Cancel    context.CancelFunc
+}
+
 // snapshotDirectory recursively captures the initial state of a directory.
 func (wgoCmd *WgoCmd) snapshotDirectory(path string) *DirectorySnapshot {
 	dirEntries, err := os.ReadDir(path)
@@ -961,13 +970,15 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, snapshot *
 		}()
 	}
 
-	// isDir tracks which names we have already seen. We are declaring it
-	// outside the loop instead of inside the loop so that we can reuse the
-	// map.
-	isDir := make(map[string]bool)
+	// seenDir and seenFile track which names we have already seen. We are
+	// declaring them outside the loop instead of inside the loop so that we can
+	// reuse the maps.
+	seenDir := make(map[string]struct{})
+	seenFile := make(map[string]struct{})
 
 	for {
-		clear(isDir)
+		clear(seenDir)
+		clear(seenFile)
 		time.Sleep(wgoCmd.PollDuration)
 		err := ctx.Err()
 		if err != nil {
@@ -979,8 +990,8 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, snapshot *
 		}
 		for _, dirEntry := range dirEntries {
 			name := dirEntry.Name()
-			isDir[name] = dirEntry.IsDir()
 			if dirEntry.IsDir() {
+				seenDir[name] = struct{}{}
 				if _, ok := snapshot.Directories[name]; ok {
 					continue
 				}
@@ -1004,6 +1015,7 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, snapshot *
 				}()
 				continue
 			}
+			seenFile[name] = struct{}{}
 			if _, ok := snapshot.Files[name]; ok {
 				continue
 			}
@@ -1028,16 +1040,14 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, snapshot *
 		}
 		// For names that no longer exist, cancel their goroutines.
 		for name, directory := range snapshot.Directories {
-			directoryExists, ok := isDir[name]
-			if !ok || !directoryExists {
+			if _, ok := seenDir[name]; !ok {
 				directory.Cancel()
 				delete(snapshot.Directories, name)
 				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}, IsDir: true}
 			}
 		}
 		for name, file := range snapshot.Files {
-			fileExists, ok := isDir[name]
-			if !ok || fileExists {
+			if _, ok := seenFile[name]; !ok {
 				file.Cancel()
 				delete(snapshot.Files, name)
 				events <- FileEvent{Event: fsnotify.Event{Name: filepath.Join(path, name), Op: fsnotify.Remove}}
