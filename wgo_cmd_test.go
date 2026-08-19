@@ -626,7 +626,7 @@ func TestWgoCmd_Run(t *testing.T) {
 
 	t.Run("signal off", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		wgoCmd, err := WgoCommand(ctx, 0, []string{
 			"run", "-dir", "testdata/signal", "./testdata/signal",
@@ -634,18 +634,35 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &TestBuffer{}
-		wgoCmd.Stdout = buf
-		err = wgoCmd.Run()
-		if err != nil {
-			if !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatal(err)
+		stdoutBuffer := &TestBuffer{
+			written: make(chan struct{}, 1),
+		}
+		wgoCmd.Stdout = stdoutBuffer
+		cmdResult := make(chan error, 1)
+		go func() {
+			cmdResult <- wgoCmd.Run()
+		}()
+
+		timer := time.NewTimer(time.Minute)
+		defer timer.Stop()
+		want := "Waiting..."
+		for stdoutBuffer.Len() < len(want) {
+			select {
+			case <-stdoutBuffer.written:
+			case err := <-cmdResult:
+				t.Fatalf("command exited before producing expected output: %v", err)
+			case <-timer.C:
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
-		got := strings.TrimSpace(buf.String())
-		want := "Waiting..."
-		if got != want {
-			t.Errorf("\ngot:  %q\nwant: %q", got, want)
+		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+			t.Fatal(diff)
+		}
+
+		cancel()
+		err = <-cmdResult
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
 		}
 	})
 
@@ -654,7 +671,7 @@ func TestWgoCmd_Run(t *testing.T) {
 			t.Skip("Windows doesn't support sending signals to a running process, skipping.")
 		}
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		wgoCmd, err := WgoCommand(ctx, 0, []string{
 			"run", "-dir", "testdata/signal", "./testdata/signal", "-trap-signal",
@@ -662,24 +679,55 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &TestBuffer{}
-		wgoCmd.Stdout = buf
-		err = wgoCmd.Run()
-		if err != nil {
-			if !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatal(err)
+		stdoutBuffer := &TestBuffer{
+			written: make(chan struct{}, 1),
+		}
+		wgoCmd.Stdout = stdoutBuffer
+		cmdResult := make(chan error, 1)
+		go func() {
+			cmdResult <- wgoCmd.Run()
+		}()
+
+		timer := time.NewTimer(time.Minute)
+		defer timer.Stop()
+		want := "Waiting..."
+		for stdoutBuffer.Len() < len(want) {
+			select {
+			case <-stdoutBuffer.written:
+			case err := <-cmdResult:
+				t.Fatalf("command exited before it was ready to receive a signal: %v", err)
+			case <-timer.C:
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
-		got := strings.TrimSpace(buf.String())
-		want := "Waiting...\nInterrupt received, graceful shutdown."
-		if got != want {
-			t.Errorf("\ngot:  %q\nwant: %q", got, want)
+		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+			t.Fatal(diff)
+		}
+
+		cancel()
+		want = "Waiting...\nInterrupt received, graceful shutdown."
+		for stdoutBuffer.Len() < len(want) {
+			select {
+			case <-stdoutBuffer.written:
+			case err := <-cmdResult:
+				t.Fatalf("command exited before producing expected output: %v", err)
+			case <-timer.C:
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
+			}
+		}
+		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+			t.Fatal(diff)
+		}
+
+		err = <-cmdResult
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
 		}
 	})
 
 	t.Run("postpone off", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		wgoCmd, err := WgoCommand(ctx, 0, []string{
 			"-xdir", ".", "-xfile", ".", "echo", "hello",
@@ -687,18 +735,35 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &TestBuffer{}
-		wgoCmd.Stdout = buf
-		err = wgoCmd.Run()
-		if err != nil {
-			if !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatal(err)
+		stdoutBuffer := &TestBuffer{
+			written: make(chan struct{}, 1),
+		}
+		wgoCmd.Stdout = stdoutBuffer
+		cmdResult := make(chan error, 1)
+		go func() {
+			cmdResult <- wgoCmd.Run()
+		}()
+
+		timer := time.NewTimer(time.Minute)
+		defer timer.Stop()
+		want := "hello"
+		for stdoutBuffer.Len() < len(want) {
+			select {
+			case <-stdoutBuffer.written:
+			case err := <-cmdResult:
+				t.Fatalf("command exited before producing expected output: %v", err)
+			case <-timer.C:
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
-		got := strings.TrimSpace(buf.String())
-		want := "hello"
-		if got != want {
-			t.Errorf("\ngot:  %q\nwant: %q", got, want)
+		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+			t.Fatal(diff)
+		}
+
+		cancel()
+		err = <-cmdResult
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
 		}
 	})
 
