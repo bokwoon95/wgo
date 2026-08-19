@@ -458,8 +458,6 @@ func (wgoCmd *WgoCmd) Run() error {
 	for restartCount := 0; ; restartCount++ {
 	CMD_CHAIN:
 		for i, args := range wgoCmd.ArgsList {
-			// TODO: can we achieve Postpone cleanly without duplicating the
-			// for select block and without too much fiddly code?
 			if restartCount == 0 && wgoCmd.Postpone {
 				for {
 					select {
@@ -474,18 +472,19 @@ func (wgoCmd *WgoCmd) Run() error {
 								_, fileEvent.IsDir = dirSet[fileEvent.Name]
 								if fileEvent.IsDir {
 									delete(dirSet, fileEvent.Name)
+									prefix := fileEvent.Name + string(filepath.Separator)
 									for dir := range dirSet {
-										if strings.HasPrefix(dir, fileEvent.Name+string(filepath.Separator)) {
+										if strings.HasPrefix(dir, prefix) {
 											delete(dirSet, dir)
 										}
 									}
 								}
 							} else {
-								fileinfo, err := os.Stat(fileEvent.Name)
+								fileInfo, err := os.Stat(fileEvent.Name)
 								if err != nil {
 									continue
 								}
-								fileEvent.IsDir = fileinfo.IsDir()
+								fileEvent.IsDir = fileInfo.IsDir()
 								if fileEvent.IsDir {
 									dirSet[fileEvent.Name] = struct{}{}
 									if fileEvent.Has(fsnotify.Create) {
@@ -500,12 +499,6 @@ func (wgoCmd *WgoCmd) Run() error {
 							timer.Reset(wgoCmd.Debounce)
 						}
 					case <-timer.C:
-						if wgoCmd.EnableStdin {
-							stdinPipeMutex.Lock()
-							stdinPipe = nil
-							stdinPipeMutex.Unlock()
-							flushStdin(wgoCmd.Stdin)
-						}
 						break CMD_CHAIN
 					}
 				}
@@ -556,6 +549,7 @@ func (wgoCmd *WgoCmd) Run() error {
 			// work interactively (the tests will pass, but somehow it won't
 			// actually work if you run it in person. I don't know why).
 			if wgoCmd.EnableStdin {
+				flushStdin(wgoCmd.Stdin)
 				stdinPipeMutex.Lock()
 				stdinPipe, err = cmd.StdinPipe()
 				stdinPipeMutex.Unlock()
@@ -605,11 +599,11 @@ func (wgoCmd *WgoCmd) Run() error {
 						if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
 							_, event.IsDir = dirSet[event.Name]
 						} else {
-							fileinfo, err := os.Stat(event.Name)
+							fileInfo, err := os.Stat(event.Name)
 							if err != nil {
 								continue
 							}
-							event.IsDir = fileinfo.IsDir()
+							event.IsDir = fileInfo.IsDir()
 							if event.IsDir {
 								dirSet[event.Name] = struct{}{}
 							} else {
@@ -634,12 +628,6 @@ func (wgoCmd *WgoCmd) Run() error {
 						}
 					}
 				case <-timer.C: // Timer expired, reload commands.
-					if wgoCmd.EnableStdin {
-						stdinPipeMutex.Lock()
-						stdinPipe = nil
-						stdinPipeMutex.Unlock()
-						flushStdin(wgoCmd.Stdin)
-					}
 					stop(cmd)
 					<-waitDone
 					break CMD_CHAIN
