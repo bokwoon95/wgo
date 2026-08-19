@@ -967,9 +967,7 @@ func (wgoCmd *WgoCmd) pollDirectory(ctx context.Context, path string, snapshot *
 	isDir := make(map[string]bool)
 
 	for {
-		for name := range isDir {
-			delete(isDir, name)
-		}
+		clear(isDir)
 		time.Sleep(wgoCmd.PollDuration)
 		err := ctx.Err()
 		if err != nil {
