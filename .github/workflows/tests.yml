@@ -12,6 +12,8 @@ jobs:
         uses: 'actions/checkout@v4'
       - name: 'Install go'
         uses: 'actions/setup-go@v7'
+        with:
+          go-version-file: 'go.mod'
       - run: 'go install github.com/mattn/goveralls@latest'
       - run: 'go test . -coverprofile=coverage -race'
       - run: 'goveralls -coverprofile=coverage -service=github || true'

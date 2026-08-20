@@ -12,7 +12,7 @@ jobs:
       - name: 'Install go'
         uses: 'actions/setup-go@v7'
         with:
-          go-version: 'stable'
+          go-version-file: 'go.mod'
       - run: 'GOOS=linux GOARCH=amd64 go build -ldflags "-w" -o wgo-linux .'
       - run: 'GOOS=linux GOARCH=arm64 go build -ldflags "-w" -o wgo-linux-arm .'
       - run: 'GOOS=darwin GOARCH=amd64 go build -ldflags "-w" -o wgo-macos .'
