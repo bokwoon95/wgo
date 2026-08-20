@@ -329,7 +329,7 @@ Flags:
 		if tmpDir == "" {
 			tmpDir = os.TempDir()
 		}
-		wgoCmd.executablePath = filepath.Join(tmpDir, "wgo_"+time.Now().Format("20060102150405")+"_"+strconv.Itoa(rand.Intn(5000)))
+		wgoCmd.executablePath = filepath.Join(tmpDir, "wgo_"+time.Now().Format("20060102150405")+"_"+strconv.Itoa(rand.Intn(9999)))
 		if runtime.GOOS == "windows" {
 			wgoCmd.executablePath += ".exe"
 		}
@@ -385,17 +385,24 @@ func (wgoCmd *WgoCmd) Run() error {
 		defer os.Remove(wgoCmd.executablePath)
 	}
 
-	// watcher emits events when files change (more efficient than polling).
+	// fileEvents is a channel that receives events from the watcher and from
+	// polling.
+	fileEvents := make(chan FileEvent)
+
+	// watcher emits events when files change (which is more efficient than
+	// polling).
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
 	}
 	defer watcher.Close()
 
-	// fileEvents receives events from the watcher and from polling.
-	fileEvents := make(chan FileEvent)
-
-	// dirSet
+	// dirSet tracks which paths are directories. Used to check if a path is a
+	// directory when fsnotify sends out a Rename or Remove event (we can't use
+	// os.Stat() on the path since it no longer exists).
+	//
+	// Not needed when we are polling, since polling tracks the directory state
+	// of the path internally.
 	dirSet := make(map[string]struct{})
 
 	polledFiles := make(map[string]*PolledFile)
@@ -996,116 +1003,92 @@ func (wgoCmd *WgoCmd) pollFile(ctx context.Context, file *PolledFile, fileEvents
 			return
 		}
 
-		// Get the dirEntries of this directory.
+		// Reset the children we have seen.
+		clear(seen)
+
+		// Loop over dirEntries of this directory.
 		dirEntries, err := os.ReadDir(file.Path)
 		if err != nil {
 			wgoCmd.ErrorLogger.Println(err)
 			continue
 		}
-
-		clear(seen)
 		for _, dirEntry := range dirEntries {
 			childName := dirEntry.Name()
 			childPath := filepath.Join(file.Path, childName)
-			// child := file.ChildMap[childName]
-			// if child != nil {
-			// 	if child.IsDir == dirEntry.IsDir() {
-			// 		continue
-			// 	}
-			// 	child.Cancel()
-			// 	delete(file.ChildMap, childName)
-			// 	fileEvents <- FileEvent{
-			// 		Event: fsnotify.Event{
-			// 			Name: childPath,
-			// 			Op:   fsnotify.Remove,
-			// 		},
-			// 		IsDir: child.IsDir,
-			// 	}
-			// }
-			if dirEntry.IsDir() {
-				if child, ok := file.ChildMap[childName]; ok {
-					if child.IsDir {
-						seen[child] = struct{}{}
-						continue
-					}
-					child.Cancel()
-					delete(file.ChildMap, childName)
-					fileEvents <- FileEvent{
-						Event: fsnotify.Event{
-							Name: childPath,
-							Op:   fsnotify.Remove,
-						},
-						IsDir: false,
-					}
+
+			// Check if the child already exists.
+			child := file.ChildMap[childName]
+			if child != nil {
+				// If child.IsDir matches dirEntry.IsDir(), we're already
+				// tracking this child. Mark as seen and continue.
+				if child.IsDir == dirEntry.IsDir() {
+					seen[child] = struct{}{}
+					continue
 				}
-				child, err := wgoCmd.newPolledFile(childPath)
+				// Otherwise, the child shares the same name as the dirEntry
+				// but its IsDir has switched sides (file -> directory or
+				// directory -> file) since we last checked it. Treat it as the
+				// old child was removed, cancel its polling goroutine and
+				// evict it from the ChildMap and emit a Remove event.
+				child.Cancel()
+				delete(file.ChildMap, childName)
+				fileEvents <- FileEvent{
+					Event: fsnotify.Event{
+						Name: childPath,
+						Op:   fsnotify.Remove,
+					},
+					IsDir: child.IsDir,
+				}
+			}
+
+			// If we reach here, it means the current dirEntry did not exist
+			// prior to this. Create a new child PolledFile based on whether or
+			// not it is a directory.
+			if dirEntry.IsDir() {
+				child, err = wgoCmd.newPolledFile(childPath)
 				if err != nil {
 					wgoCmd.ErrorLogger.Println(err)
 					continue
 				}
-				ctx, cancel := context.WithCancel(ctx)
-				child.Cancel = cancel
-				file.ChildMap[childName] = child
-				seen[child] = struct{}{}
-				fileEvents <- FileEvent{
-					Event: fsnotify.Event{
-						Name: child.Path,
-						Op:   fsnotify.Create,
-					},
-					IsDir: true,
-				}
-				file.ChildWaitGroup.Add(1)
-				go func() {
-					defer file.ChildWaitGroup.Done()
-					wgoCmd.pollFile(ctx, child, fileEvents)
-				}()
 			} else {
-				if child, ok := file.ChildMap[childName]; ok {
-					if !child.IsDir {
-						seen[child] = struct{}{}
-						continue
-					}
-					child.Cancel()
-					delete(file.ChildMap, childName)
-					fileEvents <- FileEvent{
-						Event: fsnotify.Event{
-							Name: childPath,
-							Op:   fsnotify.Remove,
-						},
-						IsDir: true,
-					}
-				}
 				fileInfo, err := os.Stat(childPath)
 				if err != nil {
 					wgoCmd.ErrorLogger.Println(err)
 					continue
 				}
-				ctx, cancel := context.WithCancel(ctx)
-				child := &PolledFile{
+				child = &PolledFile{
 					Path:    childPath,
 					IsDir:   false,
 					ModTime: fileInfo.ModTime(),
 					Size:    fileInfo.Size(),
-					Cancel:  cancel,
 				}
-				file.ChildMap[childName] = child
-				seen[child] = struct{}{}
-				fileEvents <- FileEvent{
-					Event: fsnotify.Event{
-						Name: childPath,
-						Op:   fsnotify.Create,
-					},
-					IsDir: false,
-				}
-				file.ChildWaitGroup.Add(1)
-				go func() {
-					defer file.ChildWaitGroup.Done()
-					wgoCmd.pollFile(ctx, child, fileEvents)
-				}()
 			}
+
+			// Mark the child as seen, register it in the ChildMap and emit a
+			// Create event.
+			seen[child] = struct{}{}
+			ctx, cancel := context.WithCancel(ctx)
+			child.Cancel = cancel
+			file.ChildMap[childName] = child
+			fileEvents <- FileEvent{
+				Event: fsnotify.Event{
+					Name: childPath,
+					Op:   fsnotify.Create,
+				},
+				IsDir: dirEntry.IsDir(),
+			}
+
+			// Start polling the newly-created child.
+			file.ChildWaitGroup.Add(1)
+			go func() {
+				defer file.ChildWaitGroup.Done()
+				wgoCmd.pollFile(ctx, child, fileEvents)
+			}()
 		}
 
-		// For names that no longer exist, cancel their goroutines.
+		// For children in the ChildMap, if they were not seen in the last
+		// iteration treat them as removed. Cancel the polling goroutine,
+		// delete it from the ChildMap and emit a Remove event.
 		for name, child := range file.ChildMap {
 			if _, ok := seen[child]; ok {
 				continue
