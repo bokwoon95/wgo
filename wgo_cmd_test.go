@@ -23,6 +23,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/fsnotify/fsnotify"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -1331,6 +1332,121 @@ func TestStdin(t *testing.T) {
 	}
 
 	// Shut down the wgoCmd.
+	cancel()
+	err = <-cmdResult
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}
+
+func TestUserInput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creack/pty does not support Windows")
+	}
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	executablePath := filepath.Join(tempDir, "userinput.exe")
+	err := exec.Command("go", "build", "-o", executablePath, "./testdata/userinput").Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pseudoTTY, tty, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pseudoTTY.Close()
+	defer tty.Close()
+
+	watchDir := filepath.Join(tempDir, "watch")
+	err = os.Mkdir(watchDir, 0755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	watchedPath := filepath.Join(watchDir, "watched.txt")
+	err = os.WriteFile(watchedPath, nil, 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	wgoCmd, err := WgoCommand(ctx, 0, []string{"-stdin", executablePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wgoCmd.Roots = []string{watchDir}
+	wgoCmd.Stdin = tty
+	stdoutBuffer := &Buffer{
+		written: make(chan struct{}, 1),
+	}
+	wgoCmd.Stdout = stdoutBuffer
+	cmdResult := make(chan error, 1)
+	go func() {
+		cmdResult <- wgoCmd.Run()
+	}()
+
+	timer := time.NewTimer(time.Minute)
+	defer timer.Stop()
+	for strings.Count(stdoutBuffer.String(), "User Input: ") < 1 {
+		select {
+		case <-stdoutBuffer.written:
+		case err = <-cmdResult:
+			t.Fatalf("command exited before starting: %v", err)
+		case <-timer.C:
+			t.Fatal("timed out waiting for command to start")
+		}
+	}
+	_, err = pseudoTTY.Write([]byte("123\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for !strings.Contains(stdoutBuffer.String(), "Received: 123\nUser Input: ") {
+		select {
+		case <-stdoutBuffer.written:
+		case err = <-cmdResult:
+			t.Fatalf("command exited before receiving user input: %v", err)
+		case <-timer.C:
+			t.Fatalf("timed out waiting for user input:\n%s", stdoutBuffer.String())
+		}
+	}
+
+	// Leave this input unsubmitted, then trigger a restart. The restart must
+	// not wait for a newline, and the terminal must discard the partial line.
+	_, err = pseudoTTY.Write([]byte("456"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile(watchedPath, []byte("restart"), 0666)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for strings.Count(stdoutBuffer.String(), "User Input: ") < 3 {
+		select {
+		case <-stdoutBuffer.written:
+		case err = <-cmdResult:
+			t.Fatalf("command exited before restarting: %v", err)
+		case <-timer.C:
+			t.Fatalf("program did not restart until Enter was pressed:\n%s", stdoutBuffer.String())
+		}
+	}
+	_, err = pseudoTTY.Write([]byte("abc\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for !strings.Contains(stdoutBuffer.String(), "Received: abc\nUser Input: ") {
+		select {
+		case <-stdoutBuffer.written:
+		case err = <-cmdResult:
+			t.Fatalf("command exited before receiving input after restart: %v", err)
+		case <-timer.C:
+			t.Fatalf("unsubmitted input bled into the restarted program:\n%s", stdoutBuffer.String())
+		}
+	}
+	if strings.Contains(stdoutBuffer.String(), "Received: 456abc") {
+		t.Fatalf("unsubmitted input bled into the restarted program:\n%s", stdoutBuffer.String())
+	}
+
 	cancel()
 	err = <-cmdResult
 	if err != nil && !errors.Is(err, context.Canceled) {
