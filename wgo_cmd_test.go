@@ -1339,6 +1339,9 @@ func TestStdin(t *testing.T) {
 	}
 }
 
+// Tests for:
+// - https://github.com/bokwoon95/wgo/issues/22
+// - https://github.com/bokwoon95/wgo/issues/24
 func TestUserInput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("creack/pty does not support Windows")
