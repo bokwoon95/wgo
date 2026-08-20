@@ -577,9 +577,7 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 
 	t.Run("timeout off", func(t *testing.T) {
 		t.Parallel()
-		executablePath := "./testdata/hello_world/timeout_off.exe"
-		os.RemoveAll(executablePath)
-		defer os.RemoveAll(executablePath)
+		executablePath := filepath.Join(t.TempDir(), "timeout_off.exe")
 		wgoCmd, err := WgoCommand(context.Background(), 0, []string{
 			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", executablePath, "./testdata/hello_world",
 			"::", executablePath,
@@ -604,9 +602,7 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
-		executablePath := "./testdata/hello_world/timeout_on.exe"
-		os.RemoveAll(executablePath)
-		defer os.RemoveAll(executablePath)
+		executablePath := filepath.Join(t.TempDir(), "timeout_on.exe")
 		wgoCmd, err := WgoCommand(ctx, 0, []string{
 			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", executablePath, "./testdata/hello_world",
 			"::", executablePath,
@@ -934,9 +930,6 @@ target.md: target`,
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		os.Remove(executablePath)
-	})
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
@@ -1129,9 +1122,6 @@ target.md: target`,
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		os.Remove(executablePath)
-	})
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
@@ -1222,12 +1212,11 @@ func TestStdin(t *testing.T) {
 	t.Parallel()
 
 	// Precompile testdata/stdin executable.
-	executablePath := filepath.Join(os.TempDir(), t.Name()+".exe")
+	executablePath := filepath.Join(t.TempDir(), "stdin.exe")
 	err := exec.Command("go", "build", "-o", executablePath, "./testdata/stdin").Run()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(executablePath)
 
 	// Start the wgoCmd.
 	ctx, cancel := context.WithCancel(context.Background())
