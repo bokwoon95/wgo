@@ -928,18 +928,9 @@ keep.md: keep
 target.md: target`,
 	}}
 
-	// Cleanup the directory.
-	err := os.RemoveAll(filepath.Join("testdata", "file_event", t.Name()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		os.RemoveAll(filepath.Join("testdata", "file_event", t.Name()))
-	})
-
 	// Precompile the testdata/file_event executable.
 	executablePath := filepath.Join(t.TempDir(), "file_event.exe")
-	err = exec.Command("go", "build", "-o", executablePath, "./testdata/file_event").Run()
+	err := exec.Command("go", "build", "-o", executablePath, "./testdata/file_event").Run()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -952,19 +943,8 @@ target.md: target`,
 			t.Parallel()
 
 			// Initialize the directory.
-			testDir := filepath.Join("testdata", "file_event", t.Name())
-			err := os.RemoveAll(testDir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				os.RemoveAll(testDir)
-			})
-			err = os.MkdirAll(testDir, 0777)
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = fs.WalkDir(tt.fsys, ".", func(path string, dirEntry fs.DirEntry, err error) error {
+			testDir := t.TempDir()
+			err := fs.WalkDir(tt.fsys, ".", func(path string, dirEntry fs.DirEntry, err error) error {
 				if err != nil {
 					return err
 				}
@@ -1143,18 +1123,9 @@ keep.md: keep
 target.md: target`,
 	}}
 
-	// Cleanup the directory.
-	err := os.RemoveAll(filepath.Join("testdata", "polling", t.Name()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		os.RemoveAll(filepath.Join("testdata", "polling", t.Name()))
-	})
-
 	// Precompile the testdata/polling executable.
 	executablePath := filepath.Join(t.TempDir(), "polling.exe")
-	err = exec.Command("go", "build", "-o", executablePath, "./testdata/polling").Run()
+	err := exec.Command("go", "build", "-o", executablePath, "./testdata/polling").Run()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1167,19 +1138,8 @@ target.md: target`,
 			t.Parallel()
 
 			// Initialize the directory.
-			testDir := filepath.Join("testdata", "polling", t.Name())
-			err := os.RemoveAll(testDir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				os.RemoveAll(testDir)
-			})
-			err = os.MkdirAll(testDir, 0777)
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = fs.WalkDir(tt.fsys, ".", func(path string, dirEntry fs.DirEntry, err error) error {
+			testDir := t.TempDir()
+			err := fs.WalkDir(tt.fsys, ".", func(path string, dirEntry fs.DirEntry, err error) error {
 				if err != nil {
 					return err
 				}

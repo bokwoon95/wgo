@@ -485,6 +485,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	// reload, it only resets the timer. Only when the timer is allowed to
 	// fully expire will the reload actually occur.
 	timer := time.NewTimer(0)
+	timer.Stop()
 	defer timer.Stop()
 
 	// Start a background job that continuously drains data from wgo.Stdin and
