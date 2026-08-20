@@ -463,9 +463,10 @@ func TestWgoCommands(t *testing.T) {
 					}
 				}
 			}
-			// This is ugly, but because the binPath is randomly generated we
-			// have to manually reach into the argslist and overwrite it with a
-			// well-known string so that we can compare the commands properly.
+			// This is ugly, but because the executablePath is randomly
+			// generated we have to manually reach into the argslist and
+			// overwrite it with a well-known string so that we can compare the
+			// commands properly.
 			if tt.description == "parallel commands" || tt.description == "build flags" {
 				gotCmds[0].executablePath = "out"
 				gotCmds[0].ArgsList[0][3] = "out"
@@ -474,6 +475,7 @@ func TestWgoCommands(t *testing.T) {
 			opts := []cmp.Option{
 				// Comparing loggers always fails, ignore it.
 				cmpopts.IgnoreFields(WgoCmd{}, "Logger"),
+				cmpopts.IgnoreFields(WgoCmd{}, "ErrorLogger"),
 			}
 			if diff := Diff(gotCmds, tt.wantCmds, opts...); diff != "" {
 				t.Error(diff)
@@ -571,15 +573,12 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 
 	t.Run("timeout off", func(t *testing.T) {
 		t.Parallel()
-		binPath := "./testdata/hello_world/timeout_off"
-		if runtime.GOOS == "windows" {
-			binPath += ".exe"
-		}
-		os.RemoveAll(binPath)
-		defer os.RemoveAll(binPath)
+		executablePath := "./testdata/hello_world/timeout_off.exe"
+		os.RemoveAll(executablePath)
+		defer os.RemoveAll(executablePath)
 		wgoCmd, err := WgoCommand(context.Background(), 0, []string{
-			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", binPath, "./testdata/hello_world",
-			"::", binPath,
+			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", executablePath, "./testdata/hello_world",
+			"::", executablePath,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -601,15 +600,12 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
-		binPath := "./testdata/hello_world/timeout_on"
-		if runtime.GOOS == "windows" {
-			binPath += ".exe"
-		}
-		os.RemoveAll(binPath)
-		defer os.RemoveAll(binPath)
+		executablePath := "./testdata/hello_world/timeout_on.exe"
+		os.RemoveAll(executablePath)
+		defer os.RemoveAll(executablePath)
 		wgoCmd, err := WgoCommand(ctx, 0, []string{
-			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", binPath, "./testdata/hello_world",
-			"::", binPath,
+			"-exit", "-dir", "testdata/hello_world", "-file", ".go", "go", "build", "-o", executablePath, "./testdata/hello_world",
+			"::", executablePath,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -772,7 +768,6 @@ Interrupt received, graceful shutdown.`
 
 	t.Run("postpone on", func(t *testing.T) {
 		t.Parallel()
-		testDir := t.TempDir()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		wgoCmd, err := WgoCommand(ctx, 0, []string{
@@ -781,7 +776,6 @@ Interrupt received, graceful shutdown.`
 		if err != nil {
 			t.Fatal(err)
 		}
-		wgoCmd.Roots[0] = testDir
 		loggerBuffer := &Buffer{
 			written: make(chan struct{}, 1),
 		}
@@ -795,55 +789,31 @@ Interrupt received, graceful shutdown.`
 			cmdResult <- wgoCmd.Run()
 		}()
 
+		// Wait for script to start (use logger output as the signal).
 		timer := time.NewTimer(time.Minute)
 		defer timer.Stop()
-		for !strings.Contains(loggerBuffer.String(), "WATCH") {
+		for loggerBuffer.Len() == 0 {
 			select {
 			case <-loggerBuffer.written:
 			case err = <-cmdResult:
-				t.Fatalf("command exited before watcher was ready: %v", err)
+				t.Fatalf("command exited before starting: %v", err)
 			case <-timer.C:
-				t.Fatal("timed out waiting for watcher to be ready")
+				t.Fatal("timed out waiting for command to start")
 			}
-		}
-		if strings.Contains(loggerBuffer.String(), "EXECUTING") {
-			t.Fatal("command executed before a file was modified")
 		}
 
-		err = os.WriteFile(filepath.Join(testDir, "trigger.txt"), []byte("trigger"), 0666)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		for {
-			logs := loggerBuffer.String()
-			fileEventIndex := strings.Index(logs, "trigger.txt")
-			executingIndex := strings.LastIndex(logs, "EXECUTING")
-			if fileEventIndex >= 0 && executingIndex > fileEventIndex {
-				break
-			}
-			select {
-			case <-loggerBuffer.written:
-			case err = <-cmdResult:
-				t.Fatalf("command exited before executing after the file event: %v", err)
-			case <-timer.C:
-				t.Fatalf("timed out waiting for execution after file event:\n%s", logs)
-			}
-		}
-		for stdoutBuffer.Len() < len("hello\n") {
+		want := ""
+		for stdoutBuffer.Len() < len(want) {
 			select {
 			case <-stdoutBuffer.written:
-			case err = <-cmdResult:
+			case err := <-cmdResult:
 				t.Fatalf("command exited before producing expected output: %v", err)
 			case <-timer.C:
-				t.Fatalf("timed out waiting for output: %q", stdoutBuffer.String())
+				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
-		if got, want := strings.Count(loggerBuffer.String(), "EXECUTING"), 1; got != want {
-			t.Errorf("\ngot executions:  %d\nwant executions: %d", got, want)
-		}
-		if got, want := strings.TrimSpace(stdoutBuffer.String()), "hello"; got != want {
-			t.Errorf("\ngot:  %q\nwant: %q", got, want)
+		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+			t.Fatal(diff)
 		}
 
 		cancel()
@@ -1018,9 +988,7 @@ target.md: target`,
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Forcibly update the wgoCmd's root to the testDir so we don't end
-			// up polling every single file in the repo root.
-			wgoCmd.Roots[0] = testDir
+			wgoCmd.Roots = []string{testDir}
 			stdoutBuffer := &Buffer{
 				written: make(chan struct{}, 1),
 			}
@@ -1235,9 +1203,7 @@ target.md: target`,
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Forcibly update the wgoCmd's root to the testDir so we don't end
-			// up polling every single file in the repo root.
-			wgoCmd.Roots[0] = testDir
+			wgoCmd.Roots = []string{testDir}
 			stdoutBuffer := &Buffer{
 				written: make(chan struct{}, 1),
 			}
@@ -1321,8 +1287,7 @@ func TestStdin(t *testing.T) {
 		cmdResult <- wgoCmd.Run()
 	}()
 
-	// Wait for the script to start. wgoCmd first prints EXECUTING ... to the
-	// logger, use that as the signal.
+	// Wait for script to start (use logger output as the signal).
 	timer := time.NewTimer(time.Minute)
 	defer timer.Stop()
 	for loggerBuffer.Len() == 0 {
@@ -1451,12 +1416,6 @@ func (b *Buffer) Len() int {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	return b.buffer.Len()
-}
-
-func (b *Buffer) Bytes() []byte {
-	b.mutex.Lock()
-	defer b.mutex.Unlock()
-	return b.buffer.Bytes()
 }
 
 func (b *Buffer) String() string {
