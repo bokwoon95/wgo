@@ -417,7 +417,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	// If we are not polling, add the root to the fsnotify watcher.
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
-			polledFile, err := wgoCmd.newPolledFile(root)
+			polledFile, err := wgoCmd.newPolledDirectory(root)
 			if err != nil {
 				wgoCmd.ErrorLogger.Println(err)
 				continue
@@ -873,8 +873,8 @@ type PolledFile struct {
 	Cancel context.CancelFunc
 }
 
-// newPolledFile creates a PolledFile from a given path (must be a directory).
-func (wgoCmd *WgoCmd) newPolledFile(path string) (*PolledFile, error) {
+// newPolledDirectory creates a PolledFile from a given path (must be a directory).
+func (wgoCmd *WgoCmd) newPolledDirectory(path string) (*PolledFile, error) {
 	file := &PolledFile{
 		Path:     path,
 		IsDir:    true,
@@ -941,7 +941,7 @@ func (wgoCmd *WgoCmd) newPolledFile(path string) (*PolledFile, error) {
 			}
 		}
 
-		child, err := wgoCmd.newPolledFile(childPath)
+		child, err := wgoCmd.newPolledDirectory(childPath)
 		if err != nil {
 			wgoCmd.ErrorLogger.Println(err)
 			return nil, err
@@ -1064,7 +1064,7 @@ func (wgoCmd *WgoCmd) pollFile(ctx context.Context, file *PolledFile, fileEvents
 			// prior to this. Create a new child PolledFile based on whether or
 			// not it is a directory.
 			if dirEntry.IsDir() {
-				child, err = wgoCmd.newPolledFile(childPath)
+				child, err = wgoCmd.newPolledDirectory(childPath)
 				if err != nil {
 					wgoCmd.ErrorLogger.Println(err)
 					continue
