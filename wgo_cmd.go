@@ -38,8 +38,11 @@ var boolFlagNames = []string{
 	"linkshared", "modcacherw", "trimpath",
 }
 
+// noopLogger is a logger that discards all its input.
 var noopLogger = log.New(io.Discard, "", 0)
 
+// FileEvent is a wrapper around fsnotify.Event except it also includes an
+// additional IsDir field to indicate if the file path is a directory.
 type FileEvent struct {
 	fsnotify.Event
 	IsDir bool
@@ -187,6 +190,9 @@ func WgoCommand(ctx context.Context, wgoNumber int, args []string) (*WgoCmd, err
 		Roots:       []string{cwd},
 		Logger:      noopLogger,
 		ErrorLogger: noopLogger,
+		Stdin:       os.Stdin,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
 		ctx:         ctx,
 	}
 	var verbose bool
@@ -389,8 +395,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	// polling.
 	fileEvents := make(chan FileEvent)
 
-	// watcher emits events when files change (which is more efficient than
-	// polling).
+	// watcher emits fsnotify.Event when files change.
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -405,7 +410,11 @@ func (wgoCmd *WgoCmd) Run() error {
 	// of the path internally.
 	dirSet := make(map[string]struct{})
 
-	polledFiles := make(map[string]*PolledFile)
+	// polledRoots is a list of the root directories we are polling.
+	var polledRoots []*PolledFile
+
+	// For each root, if we are polling add the root to the polledRoots slice.
+	// If we are not polling, add the root to the fsnotify watcher.
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
 			polledFile, err := wgoCmd.newPolledFile(root)
@@ -413,19 +422,28 @@ func (wgoCmd *WgoCmd) Run() error {
 				wgoCmd.ErrorLogger.Println(err)
 				continue
 			}
-			polledFiles[root] = polledFile
+			polledRoots = append(polledRoots, polledFile)
 		} else {
 			wgoCmd.addDirsRecursively(watcher, root, dirSet)
 		}
 	}
-	for _, polledFile := range polledFiles {
-		go wgoCmd.pollFile(wgoCmd.ctx, polledFile, fileEvents)
+
+	// For each polled root, spin off polling goroutines that send FileEvents
+	// into the fileEvents channel.
+	for _, polledRoot := range polledRoots {
+		go wgoCmd.pollFile(wgoCmd.ctx, polledRoot, fileEvents)
 	}
+
+	// Spin off a goroutine that drains fsnotify.Events from the watcher and
+	// sends FileEvents into the fileEvents channel.
 	go func() {
 		for event := range watcher.Events {
+			// Only permit Create | Write | Remove | Rename events.
 			if !event.Has(fsnotify.Create) && !event.Has(fsnotify.Write) && !event.Has(fsnotify.Remove) && !event.Has(fsnotify.Rename) {
 				continue
 			}
+
+			// Check if the file path is a directory.
 			var isDir bool
 			if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
 				_, isDir = dirSet[event.Name]
@@ -454,22 +472,25 @@ func (wgoCmd *WgoCmd) Run() error {
 					delete(dirSet, event.Name)
 				}
 			}
-			fileEvents <- FileEvent{Event: event, IsDir: isDir}
+
+			// Emit the FileEvent.
+			fileEvents <- FileEvent{
+				Event: event,
+				IsDir: isDir,
+			}
 		}
 	}()
+
 	// Timer is used to debounce events. Each event does not directly trigger a
 	// reload, it only resets the timer. Only when the timer is allowed to
 	// fully expire will the reload actually occur.
 	timer := time.NewTimer(0)
-	if !timer.Stop() {
-		<-timer.C
-	}
 	defer timer.Stop()
 
-	// Start a background job that continuously drains data from os.Stdin and
-	// feeds it into stdinPipe (which connected to an exec.Cmd). stdinPipe can
-	// be swapped out anytime when the exec.Cmd changes, so access is guarded
-	// by a mutex.
+	// Start a background job that continuously drains data from wgo.Stdin and
+	// feeds it into stdinPipe (which is connected to the exec.Cmd currently
+	// running). stdinPipe can be swapped out anytime when the exec.Cmd
+	// changes, so access is guarded by a mutex.
 	var stdinPipe io.WriteCloser
 	var stdinPipeMutex sync.Mutex
 	if wgoCmd.EnableStdin {
@@ -550,13 +571,8 @@ func (wgoCmd *WgoCmd) Run() error {
 					return err
 				}
 			}
-			// If the user enabled it, feed wgoCmd.Stdin to the command's
-			// Stdin.
-			//
-			// We have to use cmd.StdinPipe() here instead of assigning
-			// cmd.Stdin directly, otherwise `wgo run ./testdata/stdin` doesn't
-			// work interactively (the tests will pass, but somehow it won't
-			// actually work if you run it in person. I don't know why).
+			// If the user enabled stdin, feed wgoCmd.Stdin to the command's
+			// Stdin by pointing stdinPipe at the cmd.
 			if wgoCmd.EnableStdin {
 				flushStdin(wgoCmd.Stdin)
 				stdinPipeMutex.Lock()
@@ -653,7 +669,7 @@ func compileRegexp(pattern string) (*regexp.Regexp, error) {
 // A nice side effect is that we get to log the watched directories as we go.
 //
 // If we are polling (i.e. PollDuration > 0), do not call this method. Call
-// wgoCmd.pollPath() instead, which does its own recursive polling.
+// wgoCmd.pollFile() instead, which does its own recursive polling.
 func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string, dirSet map[string]struct{}) {
 	roots := make(map[string]struct{})
 	for _, root := range wgoCmd.Roots {
@@ -673,6 +689,7 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string, 
 		if isRoot {
 			err := watcher.Add(path)
 			if err != nil {
+				wgoCmd.ErrorLogger.Println(err)
 				if errors.Is(err, syscall.EMFILE) {
 					return fs.SkipAll
 				}
@@ -696,6 +713,7 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string, 
 			if r.MatchString(normalizedDir) {
 				err := watcher.Add(path)
 				if err != nil {
+					wgoCmd.ErrorLogger.Println(err)
 					if errors.Is(err, syscall.EMFILE) {
 						watchList := watcher.WatchList()
 						sort.Strings(watchList)
@@ -725,6 +743,7 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string, 
 		}
 		err = watcher.Add(path)
 		if err != nil {
+			wgoCmd.ErrorLogger.Println(err)
 			if errors.Is(err, syscall.EMFILE) {
 				watchList := watcher.WatchList()
 				sort.Strings(watchList)
@@ -883,8 +902,8 @@ func (wgoCmd *WgoCmd) newPolledFile(path string) (*PolledFile, error) {
 			continue
 		}
 
-		// normalizedDir is the childPath with the first matching root prefix
-		// trimmed away.
+		// normalizedDir is childPath with the matching root prefix trimmed
+		// away.
 		normalizedDir := filepath.ToSlash(childPath)
 		for _, root := range wgoCmd.Roots {
 			if after, ok := strings.CutPrefix(childPath, root+string(filepath.Separator)); ok {
@@ -904,7 +923,6 @@ func (wgoCmd *WgoCmd) newPolledFile(path string) (*PolledFile, error) {
 			continue
 		}
 
-		// TODO: fix the wonky logic here.
 		included := false
 		for _, r := range wgoCmd.DirRegexps {
 			if r.MatchString(normalizedDir) {

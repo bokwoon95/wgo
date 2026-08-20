@@ -473,9 +473,12 @@ func TestWgoCommands(t *testing.T) {
 				gotCmds[0].ArgsList[1][0] = "out"
 			}
 			opts := []cmp.Option{
-				// Comparing loggers always fails, ignore it.
+				// These fields should be excluded from comparison.
 				cmpopts.IgnoreFields(WgoCmd{}, "Logger"),
 				cmpopts.IgnoreFields(WgoCmd{}, "ErrorLogger"),
+				cmpopts.IgnoreFields(WgoCmd{}, "Stdin"),
+				cmpopts.IgnoreFields(WgoCmd{}, "Stdout"),
+				cmpopts.IgnoreFields(WgoCmd{}, "Stderr"),
 			}
 			if diff := Diff(gotCmds, tt.wantCmds, opts...); diff != "" {
 				t.Error(diff)
