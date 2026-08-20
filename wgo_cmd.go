@@ -408,7 +408,6 @@ func (wgoCmd *WgoCmd) Run() error {
 	polledFiles := make(map[string]*PolledFile)
 	for _, root := range wgoCmd.Roots {
 		if wgoCmd.PollDuration > 0 {
-			wgoCmd.Logger.Println("POLL", filepath.ToSlash(root))
 			polledFile, err := wgoCmd.newPolledFile(root)
 			if err != nil {
 				wgoCmd.Logger.Println(err)
@@ -898,13 +897,13 @@ func (wgoCmd *WgoCmd) newPolledFile(path string) (*PolledFile, error) {
 			}
 		}
 
-		wgoCmd.Logger.Println("POLL", normalizedDir)
 		child, err := wgoCmd.newPolledFile(childPath)
 		if err != nil {
 			return nil, err
 		}
 		file.Children[childName] = child
 	}
+	wgoCmd.Logger.Println("POLL", filepath.ToSlash(file.Path))
 	return file, nil
 }
 

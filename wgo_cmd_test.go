@@ -491,7 +491,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &TestBuffer{}
+		buf := &Buffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -512,7 +512,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &TestBuffer{}
+		buf := &Buffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -533,7 +533,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &TestBuffer{}
+		buf := &Buffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -554,7 +554,7 @@ func TestWgoCmd_Run(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &TestBuffer{}
+		buf := &Buffer{}
 		cmd.Stdout = buf
 		err = cmd.Run()
 		if err != nil {
@@ -584,7 +584,7 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &TestBuffer{}
+		buf := &Buffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -614,7 +614,7 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf := &TestBuffer{}
+		buf := &Buffer{}
 		wgoCmd.Stdout = buf
 		err = wgoCmd.Run()
 		if err != nil {
@@ -636,7 +636,7 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 		if err != nil {
 			t.Fatal(err)
 		}
-		stdoutBuffer := &TestBuffer{
+		stdoutBuffer := &Buffer{
 			written: make(chan struct{}, 1),
 		}
 		wgoCmd.Stdout = stdoutBuffer
@@ -681,7 +681,7 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 		if err != nil {
 			t.Fatal(err)
 		}
-		stdoutBuffer := &TestBuffer{
+		stdoutBuffer := &Buffer{
 			written: make(chan struct{}, 1),
 		}
 		wgoCmd.Stdout = stdoutBuffer
@@ -707,7 +707,8 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 		}
 
 		cancel()
-		want = "Waiting...\nInterrupt received, graceful shutdown."
+		want = `Waiting...
+Interrupt received, graceful shutdown.`
 		for stdoutBuffer.Len() < len(want) {
 			select {
 			case <-stdoutBuffer.written:
@@ -737,7 +738,7 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 		if err != nil {
 			t.Fatal(err)
 		}
-		stdoutBuffer := &TestBuffer{
+		stdoutBuffer := &Buffer{
 			written: make(chan struct{}, 1),
 		}
 		wgoCmd.Stdout = stdoutBuffer
@@ -781,11 +782,11 @@ WGO_RANDOM_NUMBER=` + WGO_RANDOM_NUMBER
 			t.Fatal(err)
 		}
 		wgoCmd.Roots[0] = testDir
-		loggerBuffer := &TestBuffer{
+		loggerBuffer := &Buffer{
 			written: make(chan struct{}, 1),
 		}
 		wgoCmd.Logger = log.New(loggerBuffer, "", 0)
-		stdoutBuffer := &TestBuffer{
+		stdoutBuffer := &Buffer{
 			written: make(chan struct{}, 1),
 		}
 		wgoCmd.Stdout = stdoutBuffer
@@ -1013,14 +1014,14 @@ target.md: target`,
 			// Start the wgoCmd.
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", executablePath, testDir})
+			wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-verbose", executablePath, testDir})
 			if err != nil {
 				t.Fatal(err)
 			}
 			// Forcibly update the wgoCmd's root to the testDir so we don't end
 			// up polling every single file in the repo root.
 			wgoCmd.Roots[0] = testDir
-			stdoutBuffer := &TestBuffer{
+			stdoutBuffer := &Buffer{
 				written: make(chan struct{}, 1),
 			}
 			wgoCmd.Stdout = stdoutBuffer
@@ -1230,14 +1231,14 @@ target.md: target`,
 			// Start the wgoCmd.
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", executablePath, testDir})
+			wgoCmd, err := WgoCommand(ctx, 0, []string{"-file", ".txt", "-poll", "100ms", "-verbose", executablePath, testDir})
 			if err != nil {
 				t.Fatal(err)
 			}
 			// Forcibly update the wgoCmd's root to the testDir so we don't end
 			// up polling every single file in the repo root.
 			wgoCmd.Roots[0] = testDir
-			stdoutBuffer := &TestBuffer{
+			stdoutBuffer := &Buffer{
 				written: make(chan struct{}, 1),
 			}
 			wgoCmd.Stdout = stdoutBuffer
@@ -1307,11 +1308,11 @@ func TestStdin(t *testing.T) {
 	}
 	pipeReader, pipeWriter := io.Pipe()
 	wgoCmd.Stdin = pipeReader
-	loggerBuffer := &TestBuffer{
+	loggerBuffer := &Buffer{
 		written: make(chan struct{}, 1),
 	}
 	wgoCmd.Logger = log.New(loggerBuffer, "", 0)
-	stderrBuffer := &TestBuffer{
+	stderrBuffer := &Buffer{
 		written: make(chan struct{}, 1),
 	}
 	wgoCmd.Stderr = stderrBuffer
@@ -1421,21 +1422,21 @@ func Diff(got, want any, opts ...cmp.Option) string {
 	return ""
 }
 
-// TestBuffer is a custom buffer type that is guarded by a sync.Mutex and on
-// write it attempts to send a signal (best-effort) down the written channel.
-type TestBuffer struct {
+// Buffer is a custom buffer type that is guarded by a sync.Mutex sends a
+// signal down the written channel on Write (non-blocking).
+type Buffer struct {
 	mutex   sync.Mutex
 	buffer  bytes.Buffer
 	written chan struct{}
 }
 
-func (b *TestBuffer) Read(p []byte) (n int, err error) {
+func (b *Buffer) Read(p []byte) (n int, err error) {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	return b.buffer.Read(p)
 }
 
-func (b *TestBuffer) Write(p []byte) (n int, err error) {
+func (b *Buffer) Write(p []byte) (n int, err error) {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	n, err = b.buffer.Write(p)
@@ -1446,13 +1447,19 @@ func (b *TestBuffer) Write(p []byte) (n int, err error) {
 	return n, err
 }
 
-func (b *TestBuffer) Len() int {
+func (b *Buffer) Len() int {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	return b.buffer.Len()
 }
 
-func (b *TestBuffer) String() string {
+func (b *Buffer) Bytes() []byte {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	return b.buffer.Bytes()
+}
+
+func (b *Buffer) String() string {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	return b.buffer.String()
