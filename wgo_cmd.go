@@ -435,7 +435,7 @@ func (wgoCmd *WgoCmd) Run() error {
 	}
 
 	// Spin off a goroutine that drains fsnotify.Events from the watcher and
-	// sends FileEvents into the fileEvents channel.
+	// sends it as FileEvents into the fileEvents channel.
 	go func() {
 		for event := range watcher.Events {
 			// Only permit Create | Write | Remove | Rename events.
