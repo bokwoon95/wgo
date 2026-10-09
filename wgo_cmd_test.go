@@ -233,6 +233,17 @@ func TestWgoCmd_match(t *testing.T) {
 		},
 		want: true,
 	}, {
+		description: "directory write does not trigger reload",
+		args:        []string{"-xdir", "build", "-file", ".cpp", "-file", ".hpp"},
+		fileEvent: FileEvent{
+			Event: fsnotify.Event{
+				Name: "scripts",
+				Op:   fsnotify.Write,
+			},
+			IsDir: true,
+		},
+		want: false,
+	}, {
 		description: "directory excluded by -xdir",
 		args:        []string{"-xdir", "testdata/dir"},
 		fileEvent: FileEvent{
@@ -875,7 +886,7 @@ Interrupt received, graceful shutdown.`
 			t.Fatal(err)
 		}
 		want = "hello\nhello"
-		for stdoutBuffer.Len() < len(want) {
+		for len(strings.ReplaceAll(stdoutBuffer.String(), "\r\n", "\n")) < len(want) {
 			select {
 			case <-stdoutBuffer.written:
 			case err := <-cmdResult:
@@ -884,7 +895,8 @@ Interrupt received, graceful shutdown.`
 				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+		diff := Diff(strings.TrimSpace(strings.ReplaceAll(stdoutBuffer.String(), "\r\n", "\n")), want)
+		if diff != "" {
 			t.Fatal(diff)
 		}
 
@@ -952,7 +964,7 @@ Interrupt received, graceful shutdown.`
 			t.Fatal(err)
 		}
 		want = "hello"
-		for stdoutBuffer.Len() < len(want) {
+		for len(strings.ReplaceAll(stdoutBuffer.String(), "\r\n", "\n")) < len(want) {
 			select {
 			case <-stdoutBuffer.written:
 			case err := <-cmdResult:
@@ -961,7 +973,8 @@ Interrupt received, graceful shutdown.`
 				t.Fatalf("timed out waiting for output:\n%v", Diff(strings.TrimSpace(stdoutBuffer.String()), want))
 			}
 		}
-		if diff := Diff(strings.TrimSpace(stdoutBuffer.String()), want); diff != "" {
+		diff := Diff(strings.TrimSpace(strings.ReplaceAll(stdoutBuffer.String(), "\r\n", "\n")), want)
+		if diff != "" {
 			t.Fatal(diff)
 		}
 
@@ -975,6 +988,7 @@ Interrupt received, graceful shutdown.`
 
 func TestWgoCmd_FileEvent(t *testing.T) {
 	type TestTable struct {
+		skipReason  string
 		description string
 		fsys        fs.FS
 		changes     func(testDir string) error
@@ -1072,6 +1086,12 @@ target.txt: target
 keep.md: keep
 target.md: target`,
 	}, {
+		skipReason: func() string {
+			if runtime.GOOS == "windows" {
+				return "Windows blocks a directory from being renamed when it is being watched by fsnotify"
+			}
+			return ""
+		}(),
 		description: "rename directory",
 		fsys: fstest.MapFS{
 			"keep.md":                  {Data: []byte("keep")},
@@ -1123,6 +1143,9 @@ target.txt/child.txt: child`,
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
+			if tt.skipReason != "" {
+				t.Skip(tt.skipReason)
+			}
 			t.Parallel()
 
 			// Initialize the directory.
@@ -1208,6 +1231,7 @@ target.txt/child.txt: child`,
 
 func TestWgoCmd_Polling(t *testing.T) {
 	type TestTable struct {
+		skipReason  string
 		description string
 		fsys        fs.FS
 		changes     func(testDir string) error
@@ -1356,6 +1380,9 @@ target.txt/child.txt: child`,
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
+			if tt.skipReason != "" {
+				t.Skip(tt.skipReason)
+			}
 			t.Parallel()
 
 			// Initialize the directory.
