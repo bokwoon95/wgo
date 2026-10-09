@@ -100,6 +100,7 @@ func TestWgoCmd_match(t *testing.T) {
 		roots       []string
 		args        []string
 		path        string
+		op          fsnotify.Op
 		isDir       bool
 		want        bool
 	}
@@ -178,6 +179,13 @@ func TestWgoCmd_match(t *testing.T) {
 		isDir:       true,
 		want:        true,
 	}, {
+		description: "directory write does not trigger reload",
+		args:        []string{"-xdir", "build", "-file", ".cpp", "-file", ".hpp"},
+		path:        "scripts",
+		op:          fsnotify.Write,
+		isDir:       true,
+		want:        false,
+	}, {
 		description: "directory excluded by -xdir",
 		args:        []string{"-xdir", "testdata/dir"},
 		path:        "testdata/dir",
@@ -218,7 +226,7 @@ func TestWgoCmd_match(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := wgoCmd.match(FileEvent{
-				Event: fsnotify.Event{Name: path},
+				Event: fsnotify.Event{Name: path, Op: tt.op},
 				IsDir: tt.isDir,
 			})
 			if !got && tt.want {

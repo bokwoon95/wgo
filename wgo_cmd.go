@@ -765,8 +765,7 @@ func (wgoCmd *WgoCmd) addDirsRecursively(watcher *fsnotify.Watcher, dir string, 
 	})
 }
 
-// match checks if a given file or directory path should trigger a reload. The
-// op string is provided only for logging purposes, it is not actually used.
+// match checks if a given file or directory path should trigger a reload.
 func (wgoCmd *WgoCmd) match(fileEvent FileEvent) bool {
 	normalizedFile := filepath.ToSlash(fileEvent.Name)
 	normalizedDir := filepath.ToSlash(filepath.Dir(normalizedFile))
@@ -805,6 +804,9 @@ func (wgoCmd *WgoCmd) match(fileEvent FileEvent) bool {
 		}
 	}
 	if fileEvent.IsDir {
+		if fileEvent.Op == fsnotify.Write {
+			return false
+		}
 		name := filepath.Base(normalizedDir)
 		switch name {
 		case ".git", ".hg", ".svn", ".idea", ".vscode", ".settings", "node_modules":
